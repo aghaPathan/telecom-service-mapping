@@ -43,6 +43,15 @@ async function loginViaForm(page: Page, email: string, password: string) {
   await page.getByRole("button", { name: /sign in/i }).click();
 }
 
+/** Wait for the post-login landing page to fully render — guarantees the
+ *  session cookie has been committed before the caller navigates again. */
+async function waitForAuthenticatedLanding(page: Page) {
+  await page.waitForURL((u) => !u.pathname.startsWith("/login"), {
+    timeout: 10_000,
+  });
+  await page.getByTestId("session-pill").waitFor({ state: "visible" });
+}
+
 test.describe.serial("auth (#7) — seed → login → RBAC → logout", () => {
   test.beforeAll(async () => {
     const [adminHash, viewerHash] = await Promise.all([
@@ -95,18 +104,15 @@ test.describe.serial("auth (#7) — seed → login → RBAC → logout", () => {
     page,
   }) => {
     await loginViaForm(page, ADMIN.email, ADMIN.password);
-    // Server action redirects to `next` (defaults to "/"). Wait for the
-    // landing page to render.
-    await page.waitForURL("**/", { timeout: 10_000 });
+    await waitForAuthenticatedLanding(page);
     const pill = page.getByTestId("session-pill");
-    await expect(pill).toBeVisible();
     await expect(pill).toContainText(ADMIN.email);
     await expect(pill).toContainText("admin");
   });
 
   test("admin can reach /admin/users and sees own row", async ({ page }) => {
     await loginViaForm(page, ADMIN.email, ADMIN.password);
-    await page.waitForURL("**/");
+    await waitForAuthenticatedLanding(page);
     await page.goto("/admin/users");
     await expect(page.getByTestId("users-table")).toBeVisible();
     // The seeded admin's row must be rendered in the table body.
@@ -119,7 +125,7 @@ test.describe.serial("auth (#7) — seed → login → RBAC → logout", () => {
     page,
   }) => {
     await loginViaForm(page, VIEWER.email, VIEWER.password);
-    await page.waitForURL("**/");
+    await waitForAuthenticatedLanding(page);
     // requireRole("admin") throws a 403 Response for a viewer session.
     // Next.js renders this as an error page; the users-table must NOT render.
     const response = await page.goto("/admin/users");
@@ -131,7 +137,7 @@ test.describe.serial("auth (#7) — seed → login → RBAC → logout", () => {
 
   test("logout returns to /login", async ({ page }) => {
     await loginViaForm(page, ADMIN.email, ADMIN.password);
-    await page.waitForURL("**/");
+    await waitForAuthenticatedLanding(page);
     await page.getByRole("button", { name: /log out/i }).click();
     await page.waitForURL(/\/login/, { timeout: 10_000 });
     await expect(page).toHaveURL(/\/login/);
