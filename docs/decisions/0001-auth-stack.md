@@ -74,3 +74,32 @@ understands server components, server actions, and Edge middleware.
   database lookup that defeats the point.
 - **Native `bcrypt`.** Rejected — Alpine + `node-gyp` friction, no
   throughput benefit at our scale.
+
+## Update (CI lesson) — 2026-04-22
+
+- **Observed:** Auth.js v5 beta.22's Credentials provider raises
+  `UnsupportedStrategy` inside `signIn()` *before* our `authorize()` callback
+  runs when `session.strategy` is `"database"`. This kills the
+  "manually mint a session row inside `authorize()`" workaround the
+  original decision rested on — the exception fires too early for our code
+  to run at all. There is no runtime flag / config to opt past it in the
+  beta; the check is unconditional.
+- **Pivot:** Bypass Auth.js at runtime entirely. Keep the existing
+  building blocks — `authenticateCredentials`, `issueDbSessionCookie`, the
+  `sessions` table — and wire them through a thin custom session layer
+  (`lib/session.ts`: `getSession()` / `destroySession()`). The login
+  server action calls `authenticateCredentials` directly and then
+  `issueDbSessionCookie`; the logout action calls `destroySession`;
+  `requireRole` and the root layout call `getSession()`. Middleware is a
+  plain cookie-presence gate (no `NextAuth(authConfig)` wrapper).
+- **Removed from runtime deps:** `next-auth`, `@auth/pg-adapter`.
+- **Kept in migration:** `sessions` / `accounts` / `verification_token`
+  tables stay — harmless unused rows today, and they preserve the option
+  to reintroduce Auth.js later if v5 GA fixes the strategy constraint.
+- **Revocation:** Unchanged. Admin deactivate still `DELETE FROM sessions
+  WHERE "userId"=$1`, and `getSession()` invalidates on `is_active=false`
+  as well, so the acceptance criterion in issue #7 still holds.
+- **If we ever do reintroduce Auth.js:** it would only work with JWT
+  strategy (plus a version-check denylist to simulate revocation). That
+  contradicts the canonical decision above, so this ADR would get
+  superseded rather than amended.
