@@ -6,11 +6,30 @@ import { readActiveLldpRows } from "./source/lldp.js";
 import { dedupLldpRows } from "./dedup.js";
 import { writeGraph } from "./graph/writer.js";
 import { startRun, finishRun } from "./runs.js";
+import {
+  loadResolverConfigFromDir,
+  resolveRole,
+  type ResolverConfig,
+} from "./resolver.js";
+import path from "node:path";
 
 export type RunIngestOpts = {
   dryRun: boolean;
   config?: IngestorConfig;
+  /**
+   * Override the directory that holds `hierarchy.yaml` and `role_codes.yaml`.
+   * Defaults to `<repo_root>/config`. Integration tests pass a tmp dir.
+   */
+  resolverConfigDir?: string;
 };
+
+function defaultConfigDir(): string {
+  // When running under tsx (tests/dev), import.meta.url points at src/.
+  // When running the compiled artifact, it points at dist/. In either case
+  // going up three levels lands in the repo root.
+  const here = new URL(import.meta.url).pathname;
+  return path.resolve(path.dirname(here), "..", "..", "..", "config");
+}
 
 export type RunIngestResult = {
   runId: number;
@@ -115,6 +134,22 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       warnings: dedup.warnings.length,
     });
 
+    // Load role/hierarchy config fresh every run (per PRD: edit YAML, re-ingest).
+    const resolverCfg: ResolverConfig = loadResolverConfigFromDir(
+      opts.resolverConfigDir
+        ?? config.RESOLVER_CONFIG_DIR
+        ?? defaultConfigDir(),
+    );
+    for (const d of dedup.devices) {
+      const { role, level } = resolveRole(
+        { name: d.name, type_code: d.type_code },
+        resolverCfg,
+      );
+      d.role = role;
+      d.level = level;
+    }
+    log("info", "roles_resolved", { devices: dedup.devices.length });
+
     if (opts.dryRun) {
       await finishRun(pool, runId, {
         status: "succeeded",
@@ -143,7 +178,7 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       { connectionAcquisitionTimeout: 10_000 },
     );
     await waitForNeo4j(driver);
-    const counts = await writeGraph(driver, dedup);
+    const counts = await writeGraph(driver, dedup, resolverCfg);
     log("info", "graph_written", counts);
 
     await finishRun(pool, runId, {

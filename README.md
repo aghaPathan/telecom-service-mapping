@@ -220,33 +220,43 @@ See `.env.example` for the full list with placeholder values.
 
 Two files under `config/` drive ingestor classification. Edit and re-run the ingest — no rebuild needed.
 
-**`config/hierarchy.yaml`**
+**`config/hierarchy.yaml`** — numeric `level` (float — 3.5 for Transport) per role. Each device gets `role`, `level`, and a secondary Neo4j label (e.g. `:Device:CORE`).
 
 ```yaml
 levels:
-  - {level: 1,   label: Core,                types: [CORE, IRR, VRR]}
-  - {level: 2,   label: Aggregation,         types: [UPE]}
-  - {level: 3,   label: CustomerAggregation, types: [CSG, GPON, SW]}
-  - {level: 3.5, label: Transport,           types: [MW]}
-  - {level: 4,   label: Access,              types: [Ran, PTP, PMP]}
-  - {level: 5,   label: Customer,            types: ["Business Customer"]}
-sw_dynamic: true
+  - {level: 1,   label: Core,                roles: [CORE, IRR, VRR]}
+  - {level: 2,   label: Aggregation,         roles: [UPE]}
+  - {level: 3,   label: CustomerAggregation, roles: [CSG, GPON, SW]}
+  - {level: 3.5, label: Transport,           roles: [MW]}
+  - {level: 4,   label: Access,              roles: [Ran, PTP, PMP]}
+  - {level: 5,   label: Customer,            roles: [Customer]}
 unknown_label: Unknown
+unknown_level: 99
+sw_dynamic_leveling:
+  enabled: true   # post-ingest Cypher pass: SW→CORE=2, SW→Ran/Customer=4, else 3
 ```
 
 **`config/role_codes.yaml`** — seeded with confirmed codes only; curate the rest over time.
 
 ```yaml
-mappings:
+type_map:
   ICOR: CORE
   IUPE: UPE
   ICSG: CSG
   GOLT: GPON
   IIRR: IRR
   IVRR: VRR
+name_prefix_map: {}      # longest-prefix wins when set
 fallback: Unknown
-resolver_priority: [type_column, name_prefix]
+resolver_priority: [type_column, name_prefix, fallback]
 ```
+
+Resolver priority per device: raw `type_a` / `type_b` → name-prefix match → `Unknown`. Unknown codes (WLEF, ELEF, EACC, blank `type_*`, …) land in the `Unknown` bucket and are curated over time.
+
+**How to change mappings without rebuilding:**
+1. Edit the YAML files on the host (they're bind-mounted at `/app/config` inside the ingestor container).
+2. Re-run the ingest: `docker compose exec ingestor npm run ingest`.
+3. The next run loads the YAML fresh — no image rebuild, no restart.
 
 ---
 

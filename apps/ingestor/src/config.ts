@@ -18,6 +18,10 @@ const Schema = z.object({
   NEO4J_USER: z.string().min(1),
   NEO4J_PASSWORD: z.string().min(1),
   INGEST_MODE: z.enum(["full", "smoke"]).default("full"),
+  // Absolute path to the directory holding hierarchy.yaml + role_codes.yaml.
+  // Optional — when absent the ingestor falls back to a path relative to its
+  // own source file. Set in docker-compose to a bind-mounted directory.
+  RESOLVER_CONFIG_DIR: z.string().optional(),
 });
 
 export type IngestorConfig = z.infer<typeof Schema>;

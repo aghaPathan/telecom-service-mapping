@@ -1,0 +1,38 @@
+# Telecom hierarchy — loaded fresh at the start of every ingest run.
+# Edit this file and re-trigger ingest to adjust levels without rebuilding.
+#
+# Each entry binds a numeric `level` (float — supports 3.5 for Transport) to a
+# human label and a set of canonical role names. A device's role is resolved
+# first (see role_codes.yaml), then mapped to (level, label) here.
+
+levels:
+  - level: 1
+    label: Core
+    roles: [CORE, IRR, VRR]
+  - level: 2
+    label: Aggregation
+    roles: [UPE]
+  - level: 3
+    label: CustomerAggregation
+    roles: [CSG, GPON, SW]
+  - level: 3.5
+    label: Transport
+    roles: [MW]
+  - level: 4
+    label: Access
+    roles: [Ran, PTP, PMP]
+  - level: 5
+    label: Customer
+    roles: [Customer]
+
+# Unknown bucket for devices whose role cannot be resolved from the source
+# columns or name prefix. Curated over time as new codes are confirmed.
+unknown_label: Unknown
+unknown_level: 99
+
+# Post-ingest topology pass: re-level :SW nodes based on their neighbors.
+#   - SW connected to any :Core        → level 2
+#   - SW connected to any :Ran/:Customer → level 4
+#   - else                              → level 3 (default for CustomerAggregation)
+sw_dynamic_leveling:
+  enabled: true

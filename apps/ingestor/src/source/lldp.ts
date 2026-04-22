@@ -35,6 +35,8 @@ export async function readActiveLldpRows(sourceUrl: string): Promise<RawLldpRow[
          vendor_b,
          domain_a,
          domain_b,
+         type_a,
+         type_b,
          updated_at
        FROM app_lldp
        WHERE status = true`,

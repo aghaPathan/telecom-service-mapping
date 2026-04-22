@@ -1,0 +1,34 @@
+# Role-code mapping — loaded fresh at the start of every ingest run.
+# Edit this file and re-trigger ingest; no rebuild required.
+#
+# Resolution priority is applied per device, in order:
+#   1. `type_column`  — raw `type_a` / `type_b` value from app_lldp lookups
+#                        here in `type_map`
+#   2. `name_prefix`  — device name's leading chars matched against
+#                        `name_prefix_map` (longest prefix wins)
+#   3. `fallback`     — value below, tagged with `unknown_label` from
+#                        hierarchy.yaml
+#
+# MVP seeds only the six codes confirmed from the source dataset. Unknown
+# codes (WLEF, ELEF, EACC, EDU, EDST, ESLR, SPT, SHC, HOS, blank type_*) fall
+# to the Unknown bucket and are curated over time.
+
+type_map:
+  ICOR: CORE
+  IUPE: UPE
+  ICSG: CSG
+  GOLT: GPON
+  IIRR: IRR
+  IVRR: VRR
+
+# Name-prefix fallback. Left empty at MVP — add entries like `XX-CORE-: CORE`
+# only when confirmed by ops. Longest prefix wins to avoid "CORE" eating
+# "CORE-AGG".
+name_prefix_map: {}
+
+fallback: Unknown
+
+resolver_priority:
+  - type_column
+  - name_prefix
+  - fallback

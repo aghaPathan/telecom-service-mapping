@@ -35,6 +35,8 @@ export type FixtureRow = {
   vendor_b: string | null;
   domain_a: string | null;
   domain_b: string | null;
+  type_a: string | null;
+  type_b: string | null;
   updated_at: Date;
 };
 
@@ -61,6 +63,8 @@ const symmetricPair = (i: number): FixtureRow[] => {
       vendor_b: "Cisco",
       domain_a: "core",
       domain_b: "agg",
+      type_a: "ICOR",
+      type_b: "IUPE",
       updated_at: base,
     },
     {
@@ -77,6 +81,8 @@ const symmetricPair = (i: number): FixtureRow[] => {
       vendor_b: "Juniper",
       domain_a: "agg",
       domain_b: "core",
+      type_a: "IUPE",
+      type_b: "ICOR",
       updated_at: base,
     },
   ];
@@ -96,6 +102,8 @@ const oneDirectionPair = (i: number): FixtureRow => ({
   vendor_b: "Huawei",
   domain_a: "access",
   domain_b: "access",
+  type_a: "ICSG",
+  type_b: null,
   updated_at: T(`2026-04-20T11:00:${String(i).padStart(2, "0")}Z`),
 });
 
@@ -121,6 +129,8 @@ const anomalyGroup = (i: number): FixtureRow[] => {
       vendor_b: "Juniper",
       domain_a: "agg",
       domain_b: "agg",
+      type_a: null,
+      type_b: null,
       updated_at: T(`2026-04-18T08:00:${String(i).padStart(2, "0")}Z`),
     },
     {
@@ -137,6 +147,8 @@ const anomalyGroup = (i: number): FixtureRow[] => {
       vendor_b: "Juniper",
       domain_a: "agg",
       domain_b: "agg",
+      type_a: null,
+      type_b: null,
       updated_at: T(`2026-04-19T08:00:${String(i).padStart(2, "0")}Z`),
     },
     {
@@ -153,6 +165,8 @@ const anomalyGroup = (i: number): FixtureRow[] => {
       vendor_b: "Juniper",
       domain_a: "agg",
       domain_b: "agg",
+      type_a: null,
+      type_b: null,
       updated_at: T(`2026-04-20T08:00:${String(i).padStart(2, "0")}Z`),
     },
   ];
@@ -172,6 +186,8 @@ const selfLoop = (name: string): FixtureRow => ({
   vendor_b: null,
   domain_a: null,
   domain_b: null,
+  type_a: null,
+  type_b: null,
   updated_at: T("2026-04-20T12:00:00Z"),
 });
 
@@ -189,6 +205,8 @@ const nullB = (i: number): FixtureRow => ({
   vendor_b: null,
   domain_a: null,
   domain_b: null,
+  type_a: null,
+  type_b: null,
   updated_at: T(`2026-04-20T13:00:${String(i).padStart(2, "0")}Z`),
 });
 
@@ -206,6 +224,8 @@ const unicodeRow = (a: string, b: string, suffix: string): FixtureRow => ({
   vendor_b: "Nokia",
   domain_a: "core",
   domain_b: "core",
+  type_a: "ICOR",
+  type_b: "ICOR",
   updated_at: T("2026-04-20T14:00:00Z"),
 });
 
@@ -226,6 +246,8 @@ const mixedCasePair: FixtureRow[] = [
     vendor_b: "Juniper",
     domain_a: "core",
     domain_b: "core",
+    type_a: "ICOR",
+    type_b: "ICOR",
     updated_at: T("2026-04-20T15:00:00Z"),
   },
   {
@@ -242,6 +264,8 @@ const mixedCasePair: FixtureRow[] = [
     vendor_b: "Juniper",
     domain_a: "core",
     domain_b: "core",
+    type_a: "ICOR",
+    type_b: "ICOR",
     updated_at: T("2026-04-20T15:00:05Z"),
   },
 ];
@@ -261,6 +285,8 @@ const fillerOneDirection = (i: number): FixtureRow => ({
   vendor_b: "Cisco",
   domain_a: "transport",
   domain_b: "transport",
+  type_a: null,
+  type_b: null,
   updated_at: T(`2026-04-20T16:00:${String(i).padStart(2, "0")}Z`),
 });
 
