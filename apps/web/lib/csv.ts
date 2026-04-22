@@ -41,3 +41,14 @@ export function csvEscape(value: CsvCell): string {
 export function csvRow(cells: CsvCell[]): string {
   return cells.map(csvEscape).join(",");
 }
+
+// Restrict an untrusted string (e.g. a device name) to a safe filename for
+// use in a `Content-Disposition: attachment; filename="..."` header.
+// Keeps alphanumerics, dot, dash, underscore; collapses everything else
+// (spaces, slashes, colons, CR/LF, quotes) to a single underscore; caps at
+// 80 chars. Guards against header-injection (CRLF) and path-traversal
+// (slashes, dots-only sequences via the 80-char cap).
+export function sanitizeFilename(s: string): string {
+  const cleaned = s.replace(/[^A-Za-z0-9._-]+/g, "_");
+  return cleaned.slice(0, 80);
+}

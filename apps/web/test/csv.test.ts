@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { csvEscape, csvRow } from "@/lib/csv";
+import { csvEscape, csvRow, sanitizeFilename } from "@/lib/csv";
 
 describe("csvEscape", () => {
   it("returns empty string for null", () => {
@@ -62,5 +62,38 @@ describe("csvEscape", () => {
 describe("csvRow", () => {
   it("joins cells with commas, escaping each and passing null through as empty", () => {
     expect(csvRow(["a", "b,c", null, 3])).toBe('a,"b,c",,3');
+  });
+});
+
+describe("sanitizeFilename", () => {
+  it("strips CR and LF to prevent header injection", () => {
+    expect(sanitizeFilename("a\r\nb")).toBe("a_b");
+  });
+
+  it("replaces spaces with underscores", () => {
+    expect(sanitizeFilename("hello world")).toBe("hello_world");
+  });
+
+  it("replaces slashes with underscores to block path traversal", () => {
+    expect(sanitizeFilename("../etc/passwd")).toBe(".._etc_passwd");
+  });
+
+  it("replaces colons with underscores", () => {
+    expect(sanitizeFilename("a:b:c")).toBe("a_b_c");
+  });
+
+  it("keeps alphanumerics, dots, dashes, underscores", () => {
+    expect(sanitizeFilename("PK-KHI-CORE-01.v2_test")).toBe(
+      "PK-KHI-CORE-01.v2_test",
+    );
+  });
+
+  it("caps at 80 chars", () => {
+    const input = "a".repeat(120);
+    expect(sanitizeFilename(input).length).toBe(80);
+  });
+
+  it("collapses consecutive forbidden chars into a single underscore", () => {
+    expect(sanitizeFilename("a   b")).toBe("a_b");
   });
 });
