@@ -16,7 +16,7 @@ COPY --from=deps /repo /repo
 COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/ingestor apps/ingestor
 COPY packages/db packages/db
-RUN pnpm --filter ingestor build
+RUN pnpm --filter @tsm/db build && pnpm --filter ingestor build
 # Materialize a self-contained deploy folder (vendors deps, flattens symlinks).
 RUN pnpm --filter ingestor deploy --prod /deploy
 
