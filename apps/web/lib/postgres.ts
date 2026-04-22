@@ -2,11 +2,18 @@ import { Pool } from "pg";
 
 let pool: Pool | null = null;
 
+/**
+ * Lazy pool. We intentionally do NOT throw on missing DATABASE_URL here —
+ * `next build`'s "Collecting page data" step evaluates every route module
+ * (including `/api/auth/[...nextauth]`), which constructs the Auth.js adapter
+ * at module load. Throwing during that phase breaks `docker compose build`
+ * when the image is built without runtime env. `pg.Pool` with an undefined
+ * connectionString will not open a connection until a query runs; connection
+ * errors surface then with a clearer context.
+ */
 export function getPool(): Pool {
   if (pool) return pool;
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL must be set");
-  pool = new Pool({ connectionString: url, max: 5 });
+  pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
   return pool;
 }
 
