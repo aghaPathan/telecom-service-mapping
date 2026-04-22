@@ -7,6 +7,7 @@ import {
 } from "@/lib/downstream";
 import type { DeviceRef } from "@/lib/path";
 import { RoleBadge } from "@/app/_components/role-badge";
+import { DownstreamListFilter } from "@/app/device/[name]/downstream/_filter";
 import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
@@ -257,38 +258,8 @@ function OkView({
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             List
           </h2>
-          <div className="mt-3 overflow-hidden rounded-md border border-slate-200 bg-white ring-1 ring-slate-100">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-3 py-2 text-left">Name</th>
-                  <th className="px-3 py-2 text-left">Role</th>
-                  <th className="px-3 py-2 text-left">Site</th>
-                  <th className="px-3 py-2 text-left">Domain</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {allDevices.map((d) => (
-                  <tr
-                    key={d.name}
-                    data-testid={
-                      d.level === 3.5 ? "downstream-mw-row" : undefined
-                    }
-                  >
-                    <td className="px-3 py-1.5 font-medium text-slate-900">
-                      {d.name}
-                    </td>
-                    <td className="px-3 py-1.5 text-slate-700">{d.role}</td>
-                    <td className="px-3 py-1.5 text-slate-700">
-                      {d.site ?? "—"}
-                    </td>
-                    <td className="px-3 py-1.5 text-slate-700">
-                      {d.domain ?? "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="mt-3">
+            <DownstreamListFilter devices={allDevices} />
           </div>
         </section>
       </div>
