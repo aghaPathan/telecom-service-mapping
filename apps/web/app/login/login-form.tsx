@@ -3,11 +3,19 @@
 import { useFormState } from "react-dom";
 import { loginAction, type LoginState } from "./actions";
 
-export function LoginForm({ next }: { next: string }) {
+export function LoginForm({
+  next,
+  initialError = null,
+}: {
+  next: string;
+  initialError?: string | null;
+}) {
   const [state, action] = useFormState<LoginState | null, FormData>(
     loginAction,
     null,
   );
+  const error =
+    state?.ok === false ? (state.error ?? "Login failed.") : initialError;
 
   return (
     <form action={action} className="space-y-4">
@@ -44,12 +52,12 @@ export function LoginForm({ next }: { next: string }) {
           className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
         />
       </div>
-      {state?.ok === false ? (
+      {error ? (
         <p
           data-testid="login-error"
           className="rounded-md bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 ring-1 ring-inset ring-rose-200"
         >
-          {state.error ?? "Login failed."}
+          {error}
         </p>
       ) : null}
       <button
