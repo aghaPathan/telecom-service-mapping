@@ -4,8 +4,18 @@ import { getPool } from "@/lib/postgres";
 
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 30; // 30 days
 
+/**
+ * Key cookie flags off the deployment URL scheme, not NODE_ENV: production
+ * behind an HTTP-only internal Caddy (CI smoke, LAN dev) must NOT set Secure
+ * (browsers reject Secure cookies over HTTP) and must NOT use the __Secure-
+ * prefix (browser rejects the whole set). Production behind HTTPS gets both.
+ */
+function isHttpsDeployment(): boolean {
+  return (process.env.NEXTAUTH_URL ?? "").startsWith("https://");
+}
+
 function cookieName(): string {
-  return process.env.NODE_ENV === "production"
+  return isHttpsDeployment()
     ? "__Secure-authjs.session-token"
     : "authjs.session-token";
 }
@@ -27,7 +37,7 @@ export async function issueDbSessionCookie(userId: string): Promise<string> {
   cookies().set(cookieName(), sessionToken, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isHttpsDeployment(),
     expires,
     path: "/",
   });

@@ -10,10 +10,12 @@ import authConfig from "./auth.config";
 // from `@/auth` — not here.
 const { auth } = NextAuth(authConfig);
 
-const SESSION_COOKIE =
-  process.env.NODE_ENV === "production"
-    ? "__Secure-authjs.session-token"
-    : "authjs.session-token";
+// Cookie name must match what issueDbSessionCookie() sets — keyed off the
+// NEXTAUTH_URL scheme so HTTP deployments (CI smoke, internal LAN) don't use
+// the __Secure- prefix (browser would reject it).
+const SESSION_COOKIE = (process.env.NEXTAUTH_URL ?? "").startsWith("https://")
+  ? "__Secure-authjs.session-token"
+  : "authjs.session-token";
 
 const PUBLIC_EXACT = new Set<string>(["/login", "/api/health"]);
 

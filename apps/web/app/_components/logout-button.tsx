@@ -11,10 +11,9 @@ async function logoutAction() {
 
   // Best-effort: delete the DB session row so the cookie is truly dead even
   // if the browser replays it before expiry.
-  const cookieName =
-    process.env.NODE_ENV === "production"
-      ? "__Secure-authjs.session-token"
-      : "authjs.session-token";
+  const cookieName = (process.env.NEXTAUTH_URL ?? "").startsWith("https://")
+    ? "__Secure-authjs.session-token"
+    : "authjs.session-token";
   const token = cookies().get(cookieName)?.value;
   if (token) {
     try {
