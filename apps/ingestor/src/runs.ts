@@ -22,6 +22,45 @@ export type FinishPayload =
     };
 
 /**
+ * Is any ingestion_runs row currently in status='running'? Used by the cron
+ * scheduler to skip a tick when the previous run hasn't finished yet.
+ */
+export async function hasRunningRun(pool: Pool): Promise<boolean> {
+  const { rows } = await pool.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM ingestion_runs WHERE status = 'running'`,
+  );
+  return Number(rows[0]?.n ?? 0) > 0;
+}
+
+/**
+ * Record a skipped cron tick as a distinct ingestion_runs row so history and
+ * the freshness badge can distinguish overlap-skips from real runs. Written
+ * as status='succeeded' + skipped=true with zeroed counts.
+ */
+export async function recordSkip(pool: Pool, reason: string): Promise<number> {
+  const { rows } = await pool.query<{ id: number }>(
+    `INSERT INTO ingestion_runs (
+       status, finished_at, skipped, dry_run,
+       source_rows_read,
+       rows_dropped_null_b, rows_dropped_self_loop, rows_dropped_anomaly,
+       graph_nodes_written, graph_edges_written,
+       sites_loaded, services_loaded,
+       terminate_edges, located_at_edges, protected_by_edges,
+       warnings_json
+     )
+     VALUES ('succeeded', now(), true, false,
+             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+             $1::jsonb)
+     RETURNING id`,
+    [JSON.stringify([{ event: "skipped_overlap", reason }])],
+  );
+  if (rows.length === 0 || rows[0]?.id === undefined) {
+    throw new Error("recordSkip: INSERT ... RETURNING returned no id");
+  }
+  return rows[0].id;
+}
+
+/**
  * Insert a new `ingestion_runs` row in `status='running'`. Returns its id so
  * the caller can close it out with `finishRun` on success/failure.
  */

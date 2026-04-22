@@ -18,6 +18,9 @@ const Schema = z.object({
   NEO4J_USER: z.string().min(1),
   NEO4J_PASSWORD: z.string().min(1),
   INGEST_MODE: z.enum(["full", "smoke"]).default("full"),
+  // Cron expression for scheduled runs when INGEST_MODE=full. Ignored in
+  // smoke mode and when --once/--dry-run are passed on the CLI.
+  INGEST_CRON: z.string().min(1).default("0 2 * * *"),
   // Absolute path to the directory holding hierarchy.yaml + role_codes.yaml.
   // Optional — when absent the ingestor falls back to a path relative to its
   // own source file. Set in docker-compose to a bind-mounted directory.

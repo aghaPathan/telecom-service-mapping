@@ -9,6 +9,7 @@ import { dedupLldpRows } from "./dedup.js";
 import { buildServicesGraph } from "./services.js";
 import { writeGraph, type SitePortalRow } from "./graph/writer.js";
 import { startRun, finishRun } from "./runs.js";
+import { startScheduler, tickCron } from "./cron.js";
 import {
   loadResolverConfigFromDir,
   resolveRole,
@@ -285,8 +286,56 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
   }
 }
 
-function parseArgs(argv: readonly string[]): { dryRun: boolean } {
-  return { dryRun: argv.includes("--dry-run") };
+function parseArgs(argv: readonly string[]): {
+  dryRun: boolean;
+  once: boolean;
+} {
+  return {
+    dryRun: argv.includes("--dry-run"),
+    once: argv.includes("--once") || argv.includes("--dry-run"),
+  };
+}
+
+/**
+ * Long-lived cron mode: an initial run on startup (honouring skip logic),
+ * then scheduled ticks via node-cron. Uses a dedicated pg Pool for the skip
+ * check so it survives `runIngest`'s own pool lifecycle.
+ */
+async function runScheduled(): Promise<void> {
+  const config = loadConfig();
+  const { Pool } = await import("pg");
+  const schedulerPool = new Pool({
+    connectionString: config.DATABASE_URL,
+    max: 1,
+  });
+  let handle: { stop: () => void } | null = null;
+  try {
+    await migrate(config.DATABASE_URL);
+    const runFn = async (): Promise<void> => {
+      await runIngest({ dryRun: false, config });
+    };
+    log("info", "ingestor_cron_mode", { cron: config.INGEST_CRON });
+    // Initial run on boot so the graph is populated immediately; the shared
+    // tickCron path ensures we still record a skip if another instance is
+    // already mid-run (defense in depth).
+    await tickCron(schedulerPool, runFn);
+    handle = startScheduler({
+      cronExpr: config.INGEST_CRON,
+      pool: schedulerPool,
+      runFn,
+    });
+    await new Promise<void>((resolve) => {
+      const shutdown = (): void => {
+        if (handle) handle.stop();
+        resolve();
+      };
+      process.once("SIGINT", shutdown);
+      process.once("SIGTERM", shutdown);
+    });
+  } finally {
+    if (handle) handle.stop();
+    await schedulerPool.end();
+  }
 }
 
 // CLI entrypoint — only runs when this file is invoked directly (not imported).
@@ -299,7 +348,14 @@ const isCliEntry =
 
 if (isCliEntry) {
   const opts = parseArgs(process.argv.slice(2));
-  runIngest(opts)
+  const envMode = process.env.INGEST_MODE ?? "full";
+
+  // One-shot paths: explicit --once/--dry-run, or smoke-mode CI seed.
+  // Everything else is long-lived cron.
+  const oneShot = opts.once || envMode === "smoke";
+  const task = oneShot ? runIngest({ dryRun: opts.dryRun }) : runScheduled();
+
+  task
     .then(() => log("info", "ingestor_done"))
     .catch((err) => {
       log("error", "ingestor_failed", {
