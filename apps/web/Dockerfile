@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1.7
+
+FROM node:20-alpine AS base
+RUN corepack enable
+WORKDIR /repo
+
+FROM base AS deps
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY apps/web/package.json apps/web/package.json
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --filter web... --frozen-lockfile=false
+
+FROM base AS builder
+COPY --from=deps /repo /repo
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.base.json ./
+COPY apps/web apps/web
+RUN pnpm --filter web build
+# Materialize a flat, prod-only app folder (vendors dependencies, resolves symlinks).
+RUN pnpm --filter web deploy --prod /deploy
+
+FROM node:20-alpine AS runner
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+WORKDIR /app
+RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+
+COPY --from=builder /deploy /app
+COPY --from=builder /repo/apps/web/.next /app/.next
+COPY --from=builder /repo/apps/web/public /app/public
+
+USER nextjs
+EXPOSE 3000
+CMD ["node", "node_modules/next/dist/bin/next", "start"]

@@ -1,0 +1,19 @@
+{
+  "name": "telecom-service-mapping",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r --parallel typecheck",
+    "lint": "pnpm -r --parallel lint",
+    "build": "pnpm -r build",
+    "test": "pnpm -r --parallel test",
+    "test:e2e": "pnpm --filter web test:e2e"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3"
+  }
+}
