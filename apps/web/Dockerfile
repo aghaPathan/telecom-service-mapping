@@ -11,24 +11,24 @@ RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --filter web... --frozen-lockfile=false
 
 FROM base AS builder
-COPY --from=deps /repo/node_modules /repo/node_modules
-COPY --from=deps /repo/apps/web/node_modules /repo/apps/web/node_modules
-COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
+COPY --from=deps /repo /repo
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.base.json ./
 COPY apps/web apps/web
-WORKDIR /repo/apps/web
-RUN pnpm build
+RUN pnpm --filter web build
+# Materialize a flat, prod-only app folder (vendors dependencies, resolves symlinks).
+RUN pnpm --filter web deploy --prod /deploy
 
 FROM node:20-alpine AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 WORKDIR /app
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 
-COPY --from=builder /repo/apps/web/.next/standalone ./
-COPY --from=builder /repo/apps/web/.next/static ./.next/static
-COPY --from=builder /repo/apps/web/public ./public
+COPY --from=builder /deploy /app
+COPY --from=builder /repo/apps/web/.next /app/.next
+COPY --from=builder /repo/apps/web/public /app/public
 
 USER nextjs
 EXPOSE 3000
-ENV HOSTNAME=0.0.0.0
-CMD ["node", "server.js"]
+CMD ["node", "node_modules/next/dist/bin/next", "start"]
