@@ -165,10 +165,40 @@ Five services start: `caddy`, `web`, `postgres`, `neo4j`, `ingestor`. Caddy publ
 
 ### 4. Seed an admin user
 
+The app has **no self-signup** — the very first admin must be bootstrapped via
+the `create-admin` CLI shipped in the `web` image.
+
 ```bash
-docker compose exec web npm run create-admin
-# prompts for email + password (password is never echoed)
+docker compose exec -iT web npm run create-admin
 ```
+
+The `-iT` flags keep stdin attached without allocating a pseudo-TTY (so the
+prompt does not echo the password as you type). You will be prompted for:
+
+```
+Email:    you@example.com
+Password: ********
+Confirm:  ********
+```
+
+On success the CLI prints:
+
+```
+created admin you@example.com
+```
+
+After this, log in at `https://localhost` (or your configured host) with the
+credentials you just set, then create additional users via `/admin/users`.
+
+**Troubleshooting — wrong password on the first user.** If the bootstrap
+admin was created with a typo'd password, re-run with `--force` to upsert:
+
+```bash
+docker compose exec -iT web npm run create-admin -- --force
+```
+
+`--force` updates the password hash for the existing email and reactivates the
+account; without it the CLI refuses to overwrite an existing user.
 
 ### 5. Trigger the first ingest
 
