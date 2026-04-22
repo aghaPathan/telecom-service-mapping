@@ -27,6 +27,9 @@ async function seed(driver: Driver) {
 
     // Linear chain: Customer(5) -> CSG(3) -> UPE(2) -> Core1(1)
     // Plus an Island CSG(3) with no edges so it cannot reach any Core.
+    // Linear chain — no ties, so shortestPath ordering is deterministic.
+    // NOTE: the UPE<->Core1 edge is stored REVERSED (Core1 as startNode)
+    // to exercise the `edge.b === node.name` branch in pickInOut.
     await session.run(
       `CREATE
         (cust:Device:CUSTOMER {name:'Customer', role:'Customer', level:5, site:'S', domain:'D'}),
@@ -36,7 +39,7 @@ async function seed(driver: Driver) {
         (island:Device:CSG    {name:'Island',   role:'CSG',      level:3, site:'I', domain:'D'}),
         (cust)-[:CONNECTS_TO {a_if:'c-to-csg',   b_if:'csg-to-c'}]->(csg),
         (csg)-[:CONNECTS_TO  {a_if:'csg-to-upe', b_if:'upe-to-csg'}]->(upe),
-        (upe)-[:CONNECTS_TO  {a_if:'upe-to-core', b_if:'core-to-upe'}]->(core),
+        (core)-[:CONNECTS_TO {a_if:'core-to-upe-R', b_if:'upe-to-core-R'}]->(upe),
         (svc:Service {cid:'C1', mobily_cid:'M1'})-[:TERMINATES_AT {role:'source'}]->(csg)
       `,
     );
@@ -129,5 +132,27 @@ describe("runPath against live Neo4j", () => {
     expect(r.hops[1]!.out_if).not.toBeNull();
     expect(r.hops[0]!.in_if).toBeNull();
     expect(r.hops[r.hops.length - 1]!.out_if).toBeNull();
+
+    // Reversed-edge coverage: the (Core1)-[:CONNECTS_TO]->(UPE) edge is stored
+    // with Core1 as `a` side, so for the UPE hop the out_if (facing Core1)
+    // must come from `b_if` — i.e. the `edge.b === node.name` branch in pickInOut.
+    const upeHop = r.hops.find((h) => h.name === "UPE")!;
+    expect(upeHop.in_if).toBe("upe-to-csg");
+    expect(upeHop.out_if).toBe("upe-to-core-R");
+    const coreHop = r.hops.find((h) => h.name === "Core1")!;
+    expect(coreHop.in_if).toBe("core-to-upe-R");
+  });
+
+  it("core device start returns zero-hop ok path with itself as the only hop", async () => {
+    const { runPath } = await import("@/lib/path");
+    const r = await runPath({ kind: "device", value: "Core1" });
+    expect(r.status).toBe("ok");
+    if (r.status !== "ok") throw new Error();
+    expect(r.length).toBe(0);
+    expect(r.hops).toHaveLength(1);
+    expect(r.hops[0]!.name).toBe("Core1");
+    expect(r.hops[0]!.level).toBe(1);
+    expect(r.hops[0]!.in_if).toBeNull();
+    expect(r.hops[0]!.out_if).toBeNull();
   });
 });

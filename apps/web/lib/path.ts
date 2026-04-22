@@ -89,6 +89,9 @@ export type PathResponse = z.infer<typeof PathResponse>;
 
 // ---------- Cypher resolver ----------
 
+// 2× the deepest hierarchy level (5) with headroom for ring detours.
+const MAX_PATH_HOPS = 15;
+
 type Nr = { toNumber: () => number };
 function toNum(v: unknown): number {
   if (typeof v === "number") return v;
@@ -134,6 +137,16 @@ function edgeToPathEdge(e: Record<string, unknown>): PathEdge {
   };
 }
 
+function deviceRefFrom(n: Record<string, unknown>): DeviceRef {
+  return {
+    name: String(n.name),
+    role: String(n.role ?? "Unknown"),
+    level: toNum(n.level ?? 0),
+    site: toStrOrNull(n.site),
+    domain: toStrOrNull(n.domain),
+  };
+}
+
 /** Given a node at index `i` in the path and its surrounding edges, pick the
  *  interface on each edge that faces `node`. Edges are stored directionally in
  *  Neo4j but traversed undirected here, so we must match by node name not
@@ -160,15 +173,29 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
   try {
     // 1. Resolve start device name.
     let startName: string | null = null;
+    let startDev: DeviceRef | null = null;
     if (q.kind === "device") {
       const res = await session.run(
-        `MATCH (d:Device {name: $name}) RETURN d.name AS name`,
+        `MATCH (d:Device {name: $name})
+         RETURN d { .name, .role, .level, .site, .domain } AS node`,
         { name: q.value },
       );
       if (res.records.length === 0) {
         return { status: "no_path", reason: "start_not_found", unreached_at: null };
       }
-      startName = String(res.records[0]!.get("name"));
+      startDev = deviceRefFrom(
+        res.records[0]!.get("node") as Record<string, unknown>,
+      );
+      startName = startDev.name;
+      // If the start device is itself a Core (level 1), shortestPath with
+      // minimum 1 hop finds no path; short-circuit to a zero-hop result.
+      if (startDev.level === 1) {
+        return {
+          status: "ok",
+          length: 0,
+          hops: [{ ...startDev, in_if: null, out_if: null }],
+        };
+      }
     } else {
       // service: prefer TERMINATES_AT {role:'source'}, then 'dest'.
       const res = await session.run(
@@ -205,9 +232,10 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
     //    level-1 (Core) device. Traversed undirected (`-[:CONNECTS_TO]-`).
     const pathRes = await session.run(
       `MATCH (start:Device {name: $startName})
+       // Core tier is level 1 per config/hierarchy.yaml — terminator condition.
        MATCH (core:Device) WHERE core.level = 1
        WITH start, core
-       MATCH p = shortestPath((start)-[:CONNECTS_TO*1..15]-(core))
+       MATCH p = shortestPath((start)-[:CONNECTS_TO*1..${MAX_PATH_HOPS}]-(core))
        WHERE ALL(i IN range(0, length(p) - 1)
                  WHERE (nodes(p)[i]).level >= (nodes(p)[i + 1]).level)
        RETURN [n IN nodes(p) | n { .name, .role, .level, .site, .domain }] AS pathNodes,
@@ -224,26 +252,27 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
 
     if (pathRes.records.length > 0) {
       const rec = pathRes.records[0]!;
-      const nodes = (rec.get("pathNodes") as Array<Record<string, unknown>>).map(
-        nodeToPathNode,
-      );
-      const edges = (rec.get("pathEdges") as Array<Record<string, unknown>>).map(
-        edgeToPathEdge,
-      );
-      const hops: Hop[] = nodes.map((n, i) => {
-        const prev = i > 0 ? edges[i - 1]! : null;
-        const next = i < edges.length ? edges[i]! : null;
+      const pathNodes = (
+        rec.get("pathNodes") as Array<Record<string, unknown>>
+      ).map(nodeToPathNode);
+      const pathEdges = (
+        rec.get("pathEdges") as Array<Record<string, unknown>>
+      ).map(edgeToPathEdge);
+      const hops: Hop[] = pathNodes.map((n, i) => {
+        const prev = i > 0 ? pathEdges[i - 1]! : null;
+        const next = i < pathEdges.length ? pathEdges[i]! : null;
         const { in_if, out_if } = pickInOut(n, prev, next);
         return { ...n, in_if, out_if };
       });
-      return { status: "ok", length: edges.length, hops };
+      return { status: "ok", length: pathEdges.length, hops };
     }
 
     // 3. No path to core. Find the deepest (lowest level) reachable device
     //    under the same monotonic predicate; that is where the trace stalled.
+    // TODO(#9-perf): this enumerates all monotonic paths for the island case — acceptable on the 50-row fixture; profile against production graph before high-fanout deployment.
     const islandRes = await session.run(
       `MATCH (start:Device {name: $startName})
-       MATCH p = (start)-[:CONNECTS_TO*0..15]-(reached:Device)
+       MATCH p = (start)-[:CONNECTS_TO*0..${MAX_PATH_HOPS}]-(reached:Device)
        WHERE ALL(i IN range(0, length(p) - 1)
                  WHERE (nodes(p)[i]).level >= (nodes(p)[i + 1]).level)
        RETURN reached { .name, .role, .level, .site, .domain } AS node
@@ -256,13 +285,7 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
       return {
         status: "no_path",
         reason: "island",
-        unreached_at: {
-          name: String(n.name),
-          role: String(n.role ?? "Unknown"),
-          level: toNum(n.level ?? 0),
-          site: toStrOrNull(n.site),
-          domain: toStrOrNull(n.domain),
-        },
+        unreached_at: deviceRefFrom(n),
       };
     }
 
@@ -277,13 +300,7 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
       return {
         status: "no_path",
         reason: "island",
-        unreached_at: {
-          name: String(n.name),
-          role: String(n.role ?? "Unknown"),
-          level: toNum(n.level ?? 0),
-          site: toStrOrNull(n.site),
-          domain: toStrOrNull(n.domain),
-        },
+        unreached_at: deviceRefFrom(n),
       };
     }
     return { status: "no_path", reason: "island", unreached_at: null };
