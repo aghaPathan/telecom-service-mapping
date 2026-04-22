@@ -42,7 +42,10 @@ services:
     build:
       context: .
       dockerfile: apps/ingestor/Dockerfile
-    restart: on-failure
+    # Long-lived in full mode (node-cron schedules nightly runs).
+    # In smoke mode it still runs once and exits — `unless-stopped` just
+    # means "don't restart an exited smoke container".
+    restart: unless-stopped
     environment:
       NEO4J_URI: ${NEO4J_URI}
       NEO4J_USER: ${NEO4J_USER}
@@ -83,7 +86,11 @@ services:
       postgres:
         condition: service_healthy
       ingestor:
-        condition: service_completed_successfully
+        # `service_started` covers both modes: smoke (ingestor starts, seeds,
+        # exits 0 — the 'started' condition stays satisfied) and full
+        # (ingestor stays up running the cron). Web no longer blocks on
+        # ingestor completion.
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
       interval: 10s
