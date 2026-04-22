@@ -3,8 +3,11 @@ import { migrate, getPool, closePool } from "@tsm/db";
 import { log } from "./logger.js";
 import { loadConfig, type IngestorConfig } from "./config.js";
 import { readActiveLldpRows } from "./source/lldp.js";
+import { readSites } from "./source/sites.js";
+import { readServices } from "./source/services.js";
 import { dedupLldpRows } from "./dedup.js";
-import { writeGraph } from "./graph/writer.js";
+import { buildServicesGraph } from "./services.js";
+import { writeGraph, type SitePortalRow } from "./graph/writer.js";
 import { startRun, finishRun } from "./runs.js";
 import {
   loadResolverConfigFromDir,
@@ -37,7 +40,15 @@ export type RunIngestResult = {
   sourceRows: number;
   dropped: { null_b: number; self_loop: number; anomaly: number };
   warnings: unknown[];
-  graph: { nodes: number; edges: number };
+  graph: {
+    nodes: number;
+    edges: number;
+    sites: number;
+    services: number;
+    terminate_edges: number;
+    located_at_edges: number;
+    protected_by_edges: number;
+  };
 };
 
 async function waitForNeo4j(
@@ -68,7 +79,7 @@ async function waitForNeo4j(
  *   1. loadConfig() — fail-fast on missing env
  *   2. migrate()    — app pg schema up-to-date
  *   3. startRun()   — ingestion_runs row in 'running'
- *   4. read + dedup source rows
+ *   4. read LLDP + sites + services; dedup LLDP; build services graph
  *   5. dry-run: log planned counts, finishRun succeeded w/ dry_run=true, return
  *      non-dry:  writeGraph, finishRun succeeded w/ counts
  *   6. on error:  finishRun failed w/ error_text, rethrow
@@ -113,7 +124,15 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       sourceRows: 0,
       dropped: { null_b: 0, self_loop: 0, anomaly: 0 },
       warnings: [],
-      graph: { nodes: 1, edges: 0 },
+      graph: {
+        nodes: 1,
+        edges: 0,
+        sites: 0,
+        services: 0,
+        terminate_edges: 0,
+        located_at_edges: 0,
+        protected_by_edges: 0,
+      },
     };
   }
 
@@ -134,6 +153,25 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       warnings: dedup.warnings.length,
     });
 
+    const rawSites = await readSites(config.DATABASE_URL_SOURCE);
+    log("info", "sites_read", { count: rawSites.length });
+
+    const { services: rawServices, deviceCids } = await readServices(
+      config.DATABASE_URL_SOURCE,
+    );
+    log("info", "services_read", {
+      services: rawServices.length,
+      device_cids: deviceCids.length,
+    });
+
+    const svcGraph = buildServicesGraph(rawServices, deviceCids);
+    log("info", "services_built", {
+      services: svcGraph.services.length,
+      terminates: svcGraph.terminates.length,
+      protections: svcGraph.protections.length,
+      dropped: svcGraph.dropped,
+    });
+
     // Load role/hierarchy config fresh every run (per PRD: edit YAML, re-ingest).
     const resolverCfg: ResolverConfig = loadResolverConfigFromDir(
       opts.resolverConfigDir
@@ -150,6 +188,12 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
     }
     log("info", "roles_resolved", { devices: dedup.devices.length });
 
+    const sites: SitePortalRow[] = rawSites.map((s) => ({
+      name: s.site_name,
+      category: s.category,
+      url: s.site_url,
+    }));
+
     if (opts.dryRun) {
       await finishRun(pool, runId, {
         status: "succeeded",
@@ -159,6 +203,11 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
         rows_dropped_anomaly: dedup.dropped.anomaly,
         graph_nodes_written: 0,
         graph_edges_written: 0,
+        sites_loaded: 0,
+        services_loaded: 0,
+        terminate_edges: 0,
+        located_at_edges: 0,
+        protected_by_edges: 0,
         warnings: dedup.warnings,
       });
       log("info", "run_finished_dry_run", { runId });
@@ -168,7 +217,15 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
         sourceRows: rows.length,
         dropped: dedup.dropped,
         warnings: dedup.warnings,
-        graph: { nodes: 0, edges: 0 },
+        graph: {
+          nodes: 0,
+          edges: 0,
+          sites: 0,
+          services: 0,
+          terminate_edges: 0,
+          located_at_edges: 0,
+          protected_by_edges: 0,
+        },
       };
     }
 
@@ -178,7 +235,18 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       { connectionAcquisitionTimeout: 10_000 },
     );
     await waitForNeo4j(driver);
-    const counts = await writeGraph(driver, dedup, resolverCfg);
+    const counts = await writeGraph(
+      driver,
+      {
+        devices: dedup.devices,
+        links: dedup.links,
+        sites,
+        services: svcGraph.services,
+        terminates: svcGraph.terminates,
+        protections: svcGraph.protections,
+      },
+      resolverCfg,
+    );
     log("info", "graph_written", counts);
 
     await finishRun(pool, runId, {
@@ -189,6 +257,11 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       rows_dropped_anomaly: dedup.dropped.anomaly,
       graph_nodes_written: counts.nodes,
       graph_edges_written: counts.edges,
+      sites_loaded: counts.sites,
+      services_loaded: counts.services,
+      terminate_edges: counts.terminate_edges,
+      located_at_edges: counts.located_at_edges,
+      protected_by_edges: counts.protected_by_edges,
       warnings: dedup.warnings,
     });
     log("info", "run_finished", { runId });

@@ -75,6 +75,52 @@ describe("ingest integration (testcontainers)", () => {
     await sc.connect();
     try {
       await sc.query(`
+        CREATE TABLE app_sitesportal (
+          site_name TEXT PRIMARY KEY,
+          category  TEXT,
+          site_url  TEXT
+        );
+        CREATE TABLE app_cid (
+          cid              TEXT PRIMARY KEY,
+          source           TEXT,
+          dest             TEXT,
+          bandwidth        TEXT,
+          protection_type  TEXT,
+          protection_cid   TEXT,
+          mobily_cid       TEXT,
+          region           TEXT
+        );
+        CREATE TABLE app_devicecid (
+          cid            TEXT,
+          device_a_name  TEXT,
+          device_b_name  TEXT
+        );
+      `);
+      await sc.query(
+        `INSERT INTO app_sitesportal (site_name, category, site_url) VALUES
+           ('XX-AAA', 'core-hub',      'https://example.invalid/XX-AAA'),
+           ('XX-BBB', 'aggregation',   'https://example.invalid/XX-BBB'),
+           ('XX-ZZZ', 'unused-portal', null)`,
+      );
+      // Services:
+      //   - SVC-1: protected by SVC-2 (primary→backup edge)
+      //   - SVC-2: unprotected
+      //   - SVC-3: protection_cid points at itself (self-loop, dropped)
+      //   - SVC-4: protection_cid points at SVC-MISSING (unknown, dropped)
+      //   - SVC-5: no source/dest columns — fallback to app_devicecid
+      await sc.query(
+        `INSERT INTO app_cid (cid, source, dest, bandwidth, protection_type, protection_cid, mobily_cid, region) VALUES
+           ('SVC-1', 'XX-AAA-CORE-01', 'XX-BBB-UPE-01', '1G',  'linear',   'SVC-2',       'MCID-1', 'west'),
+           ('SVC-2', 'XX-AAA-CORE-02', 'XX-BBB-UPE-02', '10G', 'none',     null,          'MCID-2', 'west'),
+           ('SVC-3', 'XX-AAA-CORE-03', 'XX-BBB-UPE-03', '1G',  'linear',   'SVC-3',       'MCID-3', 'east'),
+           ('SVC-4', 'XX-AAA-CORE-04', 'XX-BBB-UPE-04', '1G',  'linear',   'SVC-MISSING', 'MCID-4', 'east'),
+           ('SVC-5', null,             null,             '1G', 'none',     null,          'MCID-5', 'south')`,
+      );
+      await sc.query(
+        `INSERT INTO app_devicecid (cid, device_a_name, device_b_name) VALUES
+           ('SVC-5', 'XX-AAA-CORE-05', 'XX-BBB-UPE-05')`,
+      );
+      await sc.query(`
         CREATE TABLE app_lldp (
           id                   SERIAL PRIMARY KEY,
           device_a_name        TEXT,
@@ -208,6 +254,70 @@ describe("ingest integration (testcontainers)", () => {
         );
         expect(mc.records).toHaveLength(1);
         expect(mc.records[0]!.get("name")).toBe("XX-HHH-CORE-01");
+
+        // Sites: portal rows + derived-from-name union. Portal rows carry
+        // category + url; derived-only rows have null category/url.
+        const portalSite = await sess.run(
+          "MATCH (s:Site {name: 'XX-AAA'}) RETURN s.category AS c, s.url AS u",
+        );
+        expect(portalSite.records).toHaveLength(1);
+        expect(portalSite.records[0]!.get("c")).toBe("core-hub");
+
+        const derivedSite = await sess.run(
+          "MATCH (s:Site {name: 'XX-CCC'}) RETURN s.category AS c",
+        );
+        expect(derivedSite.records).toHaveLength(1);
+        expect(derivedSite.records[0]!.get("c")).toBeNull();
+
+        const locatedAt = await sess.run(
+          `MATCH (d:Device {name: 'XX-AAA-CORE-01'})-[:LOCATED_AT]->(s:Site)
+           RETURN s.name AS site`,
+        );
+        expect(locatedAt.records).toHaveLength(1);
+        expect(locatedAt.records[0]!.get("site")).toBe("XX-AAA");
+
+        // Services — all 5 fixture services materialize as :Service nodes.
+        const svcCount = await sess.run(
+          "MATCH (s:Service) RETURN count(s) AS c",
+        );
+        expect(svcCount.records[0]!.get("c").toNumber()).toBe(5);
+
+        // TERMINATES_AT: source + dest roles from app_cid, plus fallback
+        // from app_devicecid for SVC-5.
+        const term = await sess.run(
+          `MATCH (s:Service {cid: 'SVC-1'})-[r:TERMINATES_AT]->(d:Device)
+           RETURN r.role AS role, d.name AS name ORDER BY r.role`,
+        );
+        expect(term.records.map((r) => r.get("role"))).toEqual([
+          "dest",
+          "source",
+        ]);
+
+        const svc5Term = await sess.run(
+          `MATCH (s:Service {cid: 'SVC-5'})-[r:TERMINATES_AT]->(d:Device)
+           RETURN r.role AS role, d.name AS name ORDER BY r.role`,
+        );
+        expect(svc5Term.records).toHaveLength(2);
+        expect(svc5Term.records.map((r) => r.get("name")).sort()).toEqual([
+          "XX-AAA-CORE-05",
+          "XX-BBB-UPE-05",
+        ]);
+
+        // PROTECTED_BY: only SVC-1 → SVC-2 materializes. Self-loop (SVC-3)
+        // and unknown-cid reference (SVC-4) are dropped.
+        const prot = await sess.run(
+          `MATCH (p:Service)-[:PROTECTED_BY]->(b:Service)
+           RETURN p.cid AS primary, b.cid AS backup`,
+        );
+        expect(prot.records).toHaveLength(1);
+        expect(prot.records[0]!.get("primary")).toBe("SVC-1");
+        expect(prot.records[0]!.get("backup")).toBe("SVC-2");
+
+        // mobily_cid index is queryable.
+        const byMobily = await sess.run(
+          "MATCH (s:Service {mobily_cid: 'MCID-2'}) RETURN s.cid AS cid",
+        );
+        expect(byMobily.records[0]!.get("cid")).toBe("SVC-2");
       } finally {
         await sess.close();
       }
@@ -222,7 +332,10 @@ describe("ingest integration (testcontainers)", () => {
       const { rows } = await ac.query(
         `SELECT status, dry_run, source_rows_read,
                 rows_dropped_null_b, rows_dropped_self_loop, rows_dropped_anomaly,
-                graph_nodes_written, graph_edges_written, warnings_json
+                graph_nodes_written, graph_edges_written,
+                sites_loaded, services_loaded, terminate_edges,
+                located_at_edges, protected_by_edges,
+                warnings_json
          FROM ingestion_runs WHERE id = $1`,
         [result.runId],
       );
@@ -236,6 +349,11 @@ describe("ingest integration (testcontainers)", () => {
       expect(row.rows_dropped_anomaly).toBe(expected.dropped.anomaly);
       expect(row.graph_nodes_written).toBe(expected.devices.length);
       expect(row.graph_edges_written).toBe(expected.links.length);
+      expect(row.services_loaded).toBe(5);
+      expect(row.sites_loaded).toBeGreaterThanOrEqual(3);
+      expect(row.terminate_edges).toBe(10);
+      expect(row.protected_by_edges).toBe(1);
+      expect(row.located_at_edges).toBeGreaterThan(0);
       // warnings_json is stored as a jsonb; pg returns it already parsed.
       expect(Array.isArray(row.warnings_json)).toBe(true);
       expect(row.warnings_json).toHaveLength(expected.warnings.length);
@@ -272,7 +390,15 @@ describe("ingest integration (testcontainers)", () => {
     });
 
     expect(result.dryRun).toBe(true);
-    expect(result.graph).toEqual({ nodes: 0, edges: 0 });
+    expect(result.graph).toEqual({
+      nodes: 0,
+      edges: 0,
+      sites: 0,
+      services: 0,
+      terminate_edges: 0,
+      located_at_edges: 0,
+      protected_by_edges: 0,
+    });
 
     let after: number;
     try {
@@ -380,7 +506,7 @@ resolver_priority: [type_column, name_prefix, fallback]
     const sc = new pg.Client({ connectionString: sourceUrl });
     await sc.connect();
     try {
-      await sc.query("TRUNCATE app_lldp");
+      await sc.query("TRUNCATE app_lldp, app_cid, app_devicecid, app_sitesportal");
       const rows: [string, string, string, string, string, string][] = [
         // [a, a_if, b, b_if, type_a, type_b]
         ["SW-CORE-BOUND", "xe-1", "CORE-01", "xe-1", "TSWI", "TCOR"],
