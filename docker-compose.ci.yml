@@ -1,0 +1,8 @@
+# CI-only override: expose internal ports so GitHub-Actions-hosted
+# Playwright (running outside the compose network) can reach Postgres
+# for E2E seed/teardown. Production deployments never include this
+# file — only Caddy publishes to the host.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
