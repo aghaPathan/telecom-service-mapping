@@ -60,6 +60,21 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
   await migrate(config.DATABASE_URL);
   const pool = getPool(config.DATABASE_URL);
 
+  // CI / tracer-bullet mode: migrations applied, no source read, no Neo4j write.
+  // Keeps `service_completed_successfully` green when the source DB is absent.
+  if (config.INGEST_MODE === "smoke") {
+    log("info", "ingestor_smoke_mode", {});
+    await closePool();
+    return {
+      runId: 0,
+      dryRun: opts.dryRun,
+      sourceRows: 0,
+      dropped: { null_b: 0, self_loop: 0, anomaly: 0 },
+      warnings: [],
+      graph: { nodes: 0, edges: 0 },
+    };
+  }
+
   const runId = await startRun(pool, { dryRun: opts.dryRun });
   log("info", "run_started", { runId, dryRun: opts.dryRun });
 

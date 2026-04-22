@@ -17,6 +17,7 @@ const Schema = z.object({
   NEO4J_URI: z.string().min(1),
   NEO4J_USER: z.string().min(1),
   NEO4J_PASSWORD: z.string().min(1),
+  INGEST_MODE: z.enum(["full", "smoke"]).default("full"),
 });
 
 export type IngestorConfig = z.infer<typeof Schema>;
