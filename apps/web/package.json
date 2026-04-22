@@ -17,7 +17,6 @@
     "next": "14.2.15",
     "next-auth": "5.0.0-beta.22",
     "@auth/pg-adapter": "1.5.0",
-    "@tsm/db": "workspace:*",
     "bcryptjs": "2.4.3",
     "neo4j-driver": "5.25.0",
     "pg": "8.13.0",
@@ -29,6 +28,7 @@
   "devDependencies": {
     "@playwright/test": "1.48.0",
     "@testcontainers/postgresql": "10.13.2",
+    "@tsm/db": "workspace:*",
     "@types/bcryptjs": "2.4.6",
     "@types/node": "20.16.11",
     "@types/pg": "8.11.10",
