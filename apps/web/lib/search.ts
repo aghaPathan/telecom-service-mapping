@@ -170,13 +170,20 @@ export async function runSearch(q: string): Promise<SearchResponse> {
       }
     }
 
-    // 4. Fulltext Device.name — Lucene syntax, specials escaped.
+    // 4. Fulltext Device.name — Lucene standard analyzer lowercases and
+    //    splits on non-alphanumerics. Mirror that tokenization on the
+    //    query side: split user input on the same delimiters, escape each
+    //    token defensively, and add `*` per token for prefix matching.
+    //    Join with AND so all tokens must match.
     {
-      const escaped = escapeLucene(trimmed);
-      // Prefix + fuzzy form widens the match without letting the user
-      // smuggle operators: we wrap the already-escaped token and then add
-      // our own trailing wildcard outside the escape step.
-      const lucene = `${escaped}*`;
+      const tokens = trimmed
+        .split(/[^A-Za-z0-9]+/)
+        .filter((t) => t.length > 0)
+        .map((t) => `${escapeLucene(t)}*`);
+      if (tokens.length === 0) {
+        return { kind: "device", devices: [] };
+      }
+      const lucene = tokens.join(" AND ");
       const res = await session.run(
         `CALL db.index.fulltext.queryNodes('device_name_fulltext', $lucene)
          YIELD node, score

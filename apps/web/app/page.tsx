@@ -1,4 +1,5 @@
 import { countDevices } from "@/lib/neo4j";
+import { Omnibox } from "./_components/omnibox";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -18,8 +19,13 @@ export default async function HomePage() {
         Telecom Service Mapping
       </h1>
       <p className="mt-2 text-slate-600">
-        Tracer-bullet landing page. Full features ship across slices #3–#12.
+        Search a customer CID, Mobily CID, or device name to trace the path to
+        core.
       </p>
+
+      <section className="mt-8">
+        <Omnibox />
+      </section>
 
       <section className="mt-10 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         {error ? (
