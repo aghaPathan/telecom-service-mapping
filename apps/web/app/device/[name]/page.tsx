@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireRole } from "@/lib/rbac";
 import { runPath, type PathResponse } from "@/lib/path";
 import { PathView } from "@/app/_components/path-view";
@@ -27,12 +28,21 @@ export default async function DevicePage({
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
-      <h1
-        className="text-2xl font-semibold tracking-tight"
-        data-testid="device-page-name"
-      >
-        {name}
-      </h1>
+      <div className="flex items-center justify-between gap-4">
+        <h1
+          className="text-2xl font-semibold tracking-tight"
+          data-testid="device-page-name"
+        >
+          {name}
+        </h1>
+        <Link
+          href={`/device/${encodeURIComponent(name)}/downstream`}
+          data-testid="downstream-link"
+          className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm ring-1 ring-slate-100 hover:bg-slate-50"
+        >
+          View downstream →
+        </Link>
+      </div>
       <div className="mt-6">
         {result ? (
           <PathView data={result} />
