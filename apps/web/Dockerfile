@@ -7,8 +7,12 @@ WORKDIR /repo
 FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY apps/web/package.json apps/web/package.json
+# --ignore-scripts: web devDeps (testcontainers → ssh2 → cpu-features) try to
+# invoke node-gyp at install time. Alpine has no python/compiler, and these
+# native bindings are never needed for the production image. Skipping install
+# scripts keeps Alpine lean while leaving pure-JS fallbacks intact.
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --filter web... --frozen-lockfile=false
+    pnpm install --filter web... --frozen-lockfile=false --ignore-scripts
 
 FROM base AS builder
 COPY --from=deps /repo /repo
@@ -16,7 +20,7 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.base.json ./
 COPY apps/web apps/web
 RUN pnpm --filter web build
 # Materialize a flat, prod-only app folder (vendors dependencies, resolves symlinks).
-RUN pnpm --filter web deploy --prod /deploy
+RUN pnpm --filter web deploy --prod --ignore-scripts /deploy
 
 FROM node:20-alpine AS runner
 ENV NODE_ENV=production
