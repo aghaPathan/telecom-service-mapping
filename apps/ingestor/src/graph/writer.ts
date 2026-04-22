@@ -119,6 +119,9 @@ export async function writeGraph(
         "CREATE INDEX device_role IF NOT EXISTS FOR (d:Device) ON (d.role)",
       );
       await session.run(
+        "CREATE INDEX device_level IF NOT EXISTS FOR (d:Device) ON (d.level)",
+      );
+      await session.run(
         "CREATE INDEX device_domain IF NOT EXISTS FOR (d:Device) ON (d.domain)",
       );
       await session.run(
