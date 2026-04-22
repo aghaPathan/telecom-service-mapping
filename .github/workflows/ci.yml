@@ -23,6 +23,8 @@ jobs:
           node-version: "20"
           cache: pnpm
       - run: pnpm install --frozen-lockfile=false
+      - name: Build workspace packages (deps for typecheck)
+        run: pnpm --filter @tsm/db build
       - run: pnpm -r typecheck
 
   smoke:
@@ -42,6 +44,7 @@ jobs:
       NEXTAUTH_SECRET: ci-secret-not-for-prod-00000000000000000000
       NEXTAUTH_URL: http://localhost
       INGEST_CRON: 0 2 * * *
+      INGEST_MODE: smoke
       CADDY_TLS_MODE: internal
       CADDY_DOMAIN: localhost
     steps:
@@ -61,6 +64,7 @@ jobs:
           NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
           NEXTAUTH_URL=${NEXTAUTH_URL}
           INGEST_CRON=${INGEST_CRON}
+          INGEST_MODE=${INGEST_MODE}
           CADDY_TLS_MODE=${CADDY_TLS_MODE}
           CADDY_DOMAIN=${CADDY_DOMAIN}
           EOF

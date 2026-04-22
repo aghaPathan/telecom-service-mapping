@@ -7,6 +7,7 @@ WORKDIR /repo
 FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY apps/ingestor/package.json apps/ingestor/package.json
+COPY packages/db/package.json packages/db/package.json
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --filter ingestor... --frozen-lockfile=false
 
@@ -14,7 +15,8 @@ FROM base AS builder
 COPY --from=deps /repo /repo
 COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/ingestor apps/ingestor
-RUN pnpm --filter ingestor build
+COPY packages/db packages/db
+RUN pnpm --filter @tsm/db build && pnpm --filter ingestor build
 # Materialize a self-contained deploy folder (vendors deps, flattens symlinks).
 RUN pnpm --filter ingestor deploy --prod /deploy
 

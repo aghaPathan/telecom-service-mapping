@@ -173,9 +173,24 @@ docker compose exec web npm run create-admin
 ### 5. Trigger the first ingest
 
 ```bash
-docker compose exec ingestor npm run ingest -- --dry-run   # verify counts first
-docker compose exec ingestor npm run ingest                # real run
+docker compose run --rm ingestor node dist/index.js --dry-run   # verify counts first
+docker compose run --rm ingestor node dist/index.js             # real run (full-refresh)
 ```
+
+The ingestor:
+
+- applies pending `@tsm/db` migrations on startup (creates `ingestion_runs` on first run),
+- reads `app_lldp WHERE status = true` from `DATABASE_URL_SOURCE`,
+- dedupes per the PRD canonical-pair policy (self-loops, NULL `device_b_name`, and
+  >2-row anomalies are dropped; the rest are merged),
+- full-refreshes `:Device` and `:CONNECTS_TO` in Neo4j (`DETACH DELETE` then batched
+  `UNWIND … MERGE`),
+- records run metadata in `ingestion_runs` (counts, warnings, status, `dry_run`).
+
+`--dry-run` reads + dedupes + prints planned counts, then records a run row with
+`dry_run=true, status='succeeded'` and writes nothing to Neo4j.
+
+Nightly scheduling is deferred to issue #6; today the ingest runs only on demand.
 
 ### 6. Open the app
 

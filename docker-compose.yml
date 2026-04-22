@@ -50,6 +50,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       DATABASE_URL_SOURCE: ${DATABASE_URL_SOURCE}
       INGEST_CRON: ${INGEST_CRON}
+      INGEST_MODE: ${INGEST_MODE:-full}
     depends_on:
       neo4j:
         condition: service_healthy

@@ -1,0 +1,30 @@
+{
+  "name": "@tsm/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "migrations"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "migrate": "node-pg-migrate -m migrations -j sql --envPath ../../.env up",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'lint placeholder' && exit 0",
+    "test": "echo 'no tests' && exit 0"
+  },
+  "dependencies": {
+    "node-pg-migrate": "7.6.1",
+    "pg": "8.12.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.11.10",
+    "typescript": "5.6.3"
+  }
+}
