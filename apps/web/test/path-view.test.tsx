@@ -1,0 +1,83 @@
+import { describe, it, expect } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { PathView } from "@/app/_components/path-view";
+import type { PathResponse } from "@/lib/path";
+
+const ok: PathResponse = {
+  status: "ok", length: 3,
+  hops: [
+    { name: "Cust", role: "Customer", level: 5, site: "S", domain: "D", in_if: null,    out_if: "Gi0/0" },
+    { name: "CSG",  role: "CSG",      level: 3, site: "S", domain: "D", in_if: "Gi0/1", out_if: "Gi0/2" },
+    { name: "UPE",  role: "UPE",      level: 2, site: "S", domain: "D", in_if: "Gi0/3", out_if: "Gi0/4" },
+    { name: "CORE", role: "CORE",     level: 1, site: "S", domain: "D", in_if: "Gi0/5", out_if: null },
+  ],
+};
+
+describe("PathView", () => {
+  it("renders all four hop names in order", () => {
+    const html = renderToStaticMarkup(<PathView data={ok} />);
+    const cust = html.indexOf("Cust");
+    const csg  = html.indexOf("CSG");
+    const upe  = html.indexOf("UPE");
+    const core = html.indexOf("CORE");
+    expect(cust).toBeGreaterThanOrEqual(0);
+    expect(csg).toBeGreaterThan(cust);
+    expect(upe).toBeGreaterThan(csg);
+    expect(core).toBeGreaterThan(upe);
+  });
+
+  it("renders interface labels between hops", () => {
+    const html = renderToStaticMarkup(<PathView data={ok} />);
+    expect(html).toContain("Gi0/0");
+    expect(html).toContain("Gi0/5");
+  });
+
+  it("zero-hop core-only ok result still renders", () => {
+    const single: PathResponse = {
+      status: "ok", length: 0,
+      hops: [{ name: "CORE", role: "CORE", level: 1, site: null, domain: null, in_if: null, out_if: null }],
+    };
+    const html = renderToStaticMarkup(<PathView data={single} />);
+    expect(html).toContain("CORE");
+  });
+
+  it("missing interface data does not crash", () => {
+    const partial: PathResponse = {
+      status: "ok", length: 1,
+      hops: [
+        { name: "A", role: "Unknown", level: 3, site: null, domain: null, in_if: null, out_if: null },
+        { name: "B", role: "Unknown", level: 2, site: null, domain: null, in_if: null, out_if: null },
+      ],
+    };
+    const html = renderToStaticMarkup(<PathView data={partial} />);
+    expect(html).toContain("A");
+    expect(html).toContain("B");
+  });
+
+  it("no_path with unreached_at renders reason + hint", () => {
+    const html = renderToStaticMarkup(
+      <PathView data={{
+        status: "no_path", reason: "island",
+        unreached_at: { name: "LonelyMW", role: "MW", level: 3.5, site: "SiteX", domain: "Mpls" },
+      }} />,
+    );
+    expect(html.toLowerCase()).toContain("no core reachable");
+    expect(html).toContain("LonelyMW");
+    expect(html).toContain("MW");
+    expect(html).toContain("Mpls");
+  });
+
+  it("no_path with null unreached_at renders reason without crash", () => {
+    const html = renderToStaticMarkup(
+      <PathView data={{ status: "no_path", reason: "service_has_no_endpoint", unreached_at: null }} />,
+    );
+    expect(html).toMatch(/service.*has.*no.*endpoint/i);
+  });
+
+  it("no_path with start_not_found reason", () => {
+    const html = renderToStaticMarkup(
+      <PathView data={{ status: "no_path", reason: "start_not_found", unreached_at: null }} />,
+    );
+    expect(html).toMatch(/not.*found/i);
+  });
+});
