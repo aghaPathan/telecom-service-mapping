@@ -68,10 +68,11 @@ When in doubt, redact or ask.
 │  portal)     │                ┌────────────┐      next.js       ┌─────▼─────┐
 └──────────────┘                │  Postgres  │    server actions  │    Web    │
                                 │  13 (app)  │ ◀──────────────────│  Next.js  │
-                                │  users,    │                    │  + Auth.js│
-                                │  sessions, │                    │  + Tailwind│
-                                │  saved_    │                    └──────┬────┘
-                                │  views,    │                           │
+                                │  users,    │                    │  + custom │
+                                │  sessions, │                    │  session  │
+                                │  saved_    │                    │  + Tailwind│
+                                │  views,    │                    └──────┬────┘
+                                │  audit_log,│                           │
                                 │  ingestion_│                           │
                                 │  runs      │                    ┌──────▼────┐
                                 └────────────┘                    │   Caddy   │
@@ -94,10 +95,10 @@ Five compose services: `caddy`, `web`, `postgres`, `neo4j`, `ingestor`. Web is n
 | Hierarchy | `config/hierarchy.yaml` (configurable) — Core → Aggregation → CustomerAggregation → Transport (L3.5) → Access → Customer |
 | Role resolution | `config/role_codes.yaml` (configurable) — priority: `type_column` → name prefix → `Unknown` |
 | SW leveling | Dynamic post-ingest Cypher pass, based on topology |
-| Auth | Auth.js v5 + Credentials + bcrypt(cost=12) + **database** sessions (revocable) — see [ADR 0001](docs/decisions/0001-auth-stack.md) |
+| Auth | **Custom session layer** (not Auth.js at runtime) + bcrypt(cost=12) + DB-backed sessions (revocable via `DELETE FROM sessions` or `is_active=false`). See [ADR 0001](docs/decisions/0001-auth-stack.md) for why we pivoted away from Auth.js v5 beta's Credentials provider. |
 | RBAC | Three roles: `admin` / `operator` / `viewer`. No domain/region filtering in MVP. |
 | Provisioning | Admin-only via `npm run create-admin` CLI — **no self-signup** |
-| TLS | Caddy reverse-proxy with auto-TLS; cookies always `Secure` outside dev |
+| TLS | Caddy reverse-proxy with auto-TLS. Cookie flags (`Secure`, `__Secure-` prefix) derive from `NEXTAUTH_URL` scheme — HTTP deployments (CI, internal-LAN) drop both so browsers don't reject. |
 | Path direction | `:CONNECTS_TO` stored direction is canonical (lesser→greater); treat as undirected when matching; "downstream" derived from `level`, not stored direction |
 
 ---
@@ -189,7 +190,7 @@ Monorepo managed with `pnpm` workspaces (unless a strong reason emerges to diver
 - **Code navigation**: Serena MCP (`find_symbol`, `find_referencing_symbols`, `get_symbols_overview`). Shared-module edit protocol applies.
 - **Cross-domain features**: `orchestration-pipeline` (security + backend + frontend + infra).
 - **Single-domain multi-step**: `orchestration-pipeline-light`.
-- **Implementing queued issues (#2..#12)**: `issues-to-complete` starting from `#2`.
+- **Implementing queued issues**: `issues-to-complete`. Completed: #2–#7. Next unblocked: **#8** (omnibox search) and **#11** (Caddy TLS). #9/#10/#12 chained behind #8.
 - **Any Cypher change** → run it against a fresh testcontainer Neo4j first.
 
 ---
@@ -205,6 +206,9 @@ Monorepo managed with `pnpm` workspaces (unless a strong reason emerges to diver
 - **Don't add interface nodes** (`:Interface`) in MVP — interface is an edge property.
 - **Don't trust the source DB's unique constraint alone.** It includes IP + MAC; a stale IP rotation produces duplicate logical links. Handle in ingestor.
 - **Don't treat `ingestion_runs.skipped=true` as a failure.** It's a benign row written when the cron fires while a prior run is still `status='running'`. The freshness badge and history page intentionally filter skipped rows out of "last real refresh".
+- **Don't reintroduce Auth.js at runtime.** v5 beta's Credentials provider refuses `strategy: "database"` with `UnsupportedStrategy`, which blocks the revocation criterion. ADR 0001 documents the custom session layer (`apps/web/lib/session.ts`, `lib/session-cookie.ts`, `lib/authenticate.ts`) that replaces it. The `sessions` / `verification_token` / `accounts` tables stay in the migration (adapter-shaped) but are exercised only by our own code.
+- **Don't key cookie flags off `NODE_ENV`.** CI and internal-LAN deployments run `NODE_ENV=production` behind HTTP-only Caddy; `Secure` / `__Secure-` cookies are silently dropped over HTTP. All three cookie sites (`lib/session-cookie.ts`, `middleware.ts`, `app/_components/logout-button.tsx`) must key off `NEXTAUTH_URL` scheme instead.
+- **Don't remove `docker-compose.ci.yml` or the `--ignore-scripts` flag in `apps/web/Dockerfile`.** The CI overlay exposes `postgres:5432` on host so Playwright can seed E2E users from outside the compose network (production compose never includes it). `--ignore-scripts` skips `testcontainers → ssh2 → cpu-features` native builds that would fail in `node:20-alpine` with no python/compiler; those packages have pure-JS fallbacks.
 
 ---
 
@@ -215,7 +219,7 @@ Monorepo managed with `pnpm` workspaces (unless a strong reason emerges to diver
 | `DATABASE_URL_SOURCE` | Read-only conn string to the source Postgres (LLDP data) |
 | `DATABASE_URL` | App Postgres (users, sessions, saved_views) |
 | `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | Neo4j connection |
-| `NEXTAUTH_SECRET` / `NEXTAUTH_URL` | Auth.js |
+| `NEXTAUTH_URL` | Base URL — session cookie name + `Secure` flag derive from its scheme (http → plain `authjs.session-token`, https → `__Secure-authjs.session-token`). `NEXTAUTH_SECRET` / `AUTH_TRUST_HOST` are legacy placeholders from the Auth.js attempt; no runtime code reads them. |
 | `INGEST_CRON` | Cron expression for nightly ingest (default `0 2 * * *`) |
 | `INGEST_MODE` | `full` (default — real source + cron) \| `smoke` (CI tracer: one-shot seed of a single `:Device {name:'seed-01'}`, then exit) |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | App Postgres container bootstrap |
