@@ -3,19 +3,12 @@
 import { useFormState } from "react-dom";
 import { loginAction, type LoginState } from "./actions";
 
-export function LoginForm({
-  next,
-  initialError = null,
-}: {
-  next: string;
-  initialError?: string | null;
-}) {
+export function LoginForm({ next }: { next: string }) {
   const [state, action] = useFormState<LoginState | null, FormData>(
     loginAction,
     null,
   );
-  const error =
-    state?.ok === false ? (state.error ?? "Login failed.") : initialError;
+  const error = state?.ok === false ? (state.error ?? "Login failed.") : null;
 
   return (
     <form action={action} className="space-y-4">

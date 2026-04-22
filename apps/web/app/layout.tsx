@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/session";
 import { FreshnessBadge } from "./_components/freshness-badge";
 import { LogoutButton } from "./_components/logout-button";
 import "./globals.css";
@@ -16,7 +16,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
+  const session = await getSession();
   return (
     <html lang="en">
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">

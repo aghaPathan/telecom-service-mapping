@@ -1,14 +1,4 @@
-import NextAuth from "next-auth";
-import authConfig from "./auth.config";
-
-// Edge-safe middleware. We run NextAuth(authConfig) to get an `auth` wrapper
-// that injects nothing heavy — authConfig has no adapter and no providers.
-// However, under the DB-session strategy used in auth.ts, no JWT is issued,
-// so `req.auth` is always null in Edge. We therefore fall back to a
-// cookie-presence check as the primary gate. Full session validation (DB
-// lookup, role resolution) happens in server components via `await auth()`
-// from `@/auth` — not here.
-const { auth } = NextAuth(authConfig);
+import type { NextRequest } from "next/server";
 
 // Cookie name must match what issueDbSessionCookie() sets — keyed off the
 // NEXTAUTH_URL scheme so HTTP deployments (CI smoke, internal LAN) don't use
@@ -19,11 +9,13 @@ const SESSION_COOKIE = (process.env.NEXTAUTH_URL ?? "").startsWith("https://")
 
 const PUBLIC_EXACT = new Set<string>(["/login", "/api/health"]);
 
-export default auth((req) => {
+export default function middleware(req: NextRequest) {
   const { nextUrl } = req;
   const { pathname, search } = nextUrl;
 
   if (PUBLIC_EXACT.has(pathname)) return;
+  // Kept as a public namespace even though empty — legacy routes we might
+  // reintroduce (e.g. CSRF endpoint) would need to pass through.
   if (pathname.startsWith("/api/auth")) return;
 
   const hasSession = req.cookies.get(SESSION_COOKIE)?.value != null;
@@ -32,7 +24,7 @@ export default auth((req) => {
     loginUrl.searchParams.set("next", pathname + search);
     return Response.redirect(loginUrl);
   }
-});
+}
 
 export const config = {
   matcher: [
