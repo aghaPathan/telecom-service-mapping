@@ -9,6 +9,11 @@ export type FinishPayload =
       rows_dropped_anomaly: number;
       graph_nodes_written: number;
       graph_edges_written: number;
+      sites_loaded: number;
+      services_loaded: number;
+      terminate_edges: number;
+      located_at_edges: number;
+      protected_by_edges: number;
       warnings: unknown[];
     }
   | {
@@ -56,7 +61,12 @@ export async function finishRun(
              rows_dropped_anomaly = $5,
              graph_nodes_written = $6,
              graph_edges_written = $7,
-             warnings_json = $8::jsonb
+             sites_loaded = $8,
+             services_loaded = $9,
+             terminate_edges = $10,
+             located_at_edges = $11,
+             protected_by_edges = $12,
+             warnings_json = $13::jsonb
        WHERE id = $1`,
       [
         id,
@@ -66,6 +76,11 @@ export async function finishRun(
         payload.rows_dropped_anomaly,
         payload.graph_nodes_written,
         payload.graph_edges_written,
+        payload.sites_loaded,
+        payload.services_loaded,
+        payload.terminate_edges,
+        payload.located_at_edges,
+        payload.protected_by_edges,
         JSON.stringify(payload.warnings),
       ],
     );

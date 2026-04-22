@@ -1,6 +1,12 @@
 import type { Driver } from "neo4j-driver";
 import type { DeviceProps, LinkProps } from "../dedup.js";
 import type { ResolverConfig } from "../resolver.js";
+import { deriveSiteFromDeviceName } from "../site.js";
+import type {
+  ServiceProps,
+  TerminateEdge,
+  ProtectedByEdge,
+} from "../services.js";
 
 const BATCH_SIZE = 5000;
 
@@ -36,33 +42,93 @@ function allowedRolesFromConfig(cfg: ResolverConfig): Set<string> {
   return s;
 }
 
+export type SitePortalRow = {
+  name: string;
+  category: string | null;
+  url: string | null;
+};
+
+export type GraphWriteInput = {
+  devices: readonly DeviceProps[];
+  links: readonly LinkProps[];
+  sites: readonly SitePortalRow[];
+  services: readonly ServiceProps[];
+  terminates: readonly TerminateEdge[];
+  protections: readonly ProtectedByEdge[];
+};
+
+export type GraphWriteCounts = {
+  nodes: number;
+  edges: number;
+  sites: number;
+  services: number;
+  terminate_edges: number;
+  located_at_edges: number;
+  protected_by_edges: number;
+};
+
 /**
- * Full-refresh writer: wipes all `:Device` nodes (and their relationships via
- * DETACH DELETE), ensures the uniqueness constraint exists, then re-creates
- * devices and links from the supplied dedup result. Finally applies a
- * topology-driven re-leveling pass for :SW nodes (if enabled in hierarchy).
+ * Full-refresh writer: wipes :Device and :Service nodes (with DETACH DELETE
+ * taking care of :Site relationships too — we also wipe orphan :Site nodes
+ * whose only edges were LOCATED_AT). Then re-creates the full graph in
+ * ordered phases so downstream relationships always find their endpoints.
+ *
+ * Phase ordering (documented per PRD "atomic-ish, one Neo4j session per phase"):
+ *   1. wipe existing graph
+ *   2. constraints + indexes (idempotent)
+ *   3. devices (with role secondary labels)
+ *   4. CONNECTS_TO edges
+ *   5. sites (merge union of sitesportal + derived-from-device-name)
+ *   6. LOCATED_AT edges
+ *   7. services
+ *   8. TERMINATES_AT edges
+ *   9. PROTECTED_BY edges
+ *  10. SW dynamic-leveling post-pass
  */
 export async function writeGraph(
   driver: Driver,
-  data: { devices: readonly DeviceProps[]; links: readonly LinkProps[] },
+  data: GraphWriteInput,
   resolverCfg: ResolverConfig,
-): Promise<{ nodes: number; edges: number }> {
-  // Phase 1: wipe.
+): Promise<GraphWriteCounts> {
+  // Phase 1: wipe Device + Service + orphan Site nodes.
   {
     const session = driver.session();
     try {
       await session.run("MATCH (d:Device) DETACH DELETE d");
+      await session.run("MATCH (s:Service) DETACH DELETE s");
+      await session.run("MATCH (s:Site) DETACH DELETE s");
     } finally {
       await session.close();
     }
   }
 
-  // Phase 2: constraint (idempotent).
+  // Phase 2: constraints + indexes (all idempotent).
   {
     const session = driver.session();
     try {
       await session.run(
         "CREATE CONSTRAINT device_name_unique IF NOT EXISTS FOR (d:Device) REQUIRE d.name IS UNIQUE",
+      );
+      await session.run(
+        "CREATE CONSTRAINT site_name_unique IF NOT EXISTS FOR (s:Site) REQUIRE s.name IS UNIQUE",
+      );
+      await session.run(
+        "CREATE CONSTRAINT service_cid_unique IF NOT EXISTS FOR (s:Service) REQUIRE s.cid IS UNIQUE",
+      );
+      await session.run(
+        "CREATE INDEX device_role IF NOT EXISTS FOR (d:Device) ON (d.role)",
+      );
+      await session.run(
+        "CREATE INDEX device_domain IF NOT EXISTS FOR (d:Device) ON (d.domain)",
+      );
+      await session.run(
+        "CREATE INDEX device_site IF NOT EXISTS FOR (d:Device) ON (d.site)",
+      );
+      await session.run(
+        "CREATE INDEX service_mobily_cid IF NOT EXISTS FOR (s:Service) ON (s.mobily_cid)",
+      );
+      await session.run(
+        "CREATE FULLTEXT INDEX device_name_fulltext IF NOT EXISTS FOR (d:Device) ON EACH [d.name]",
       );
     } finally {
       await session.close();
@@ -71,7 +137,9 @@ export async function writeGraph(
 
   // Phase 3: devices — grouped by role so we can safely bake the role into
   // a static secondary label. (Neo4j 5 cannot parameterize labels, so we
-  // validate each role against a whitelist before interpolation.)
+  // validate each role against a whitelist before interpolation.) Each
+  // device also gets its derived `site` property (null when we can't
+  // extract one from the name).
   const allowed = allowedRolesFromConfig(resolverCfg);
   const byRole = new Map<string, DeviceProps[]>();
   for (const d of data.devices) {
@@ -94,6 +162,7 @@ export async function writeGraph(
         mac: d.mac,
         role,
         level: d.level ?? resolverCfg.hierarchy.unknown_level,
+        site: deriveSiteFromDeviceName(d.name),
       }));
       const session = driver.session();
       try {
@@ -107,6 +176,7 @@ export async function writeGraph(
                    x.mac    = d.mac,
                    x.role   = d.role,
                    x.level  = d.level,
+                   x.site   = d.site,
                    x:\`${role}\``,
             { batch: payload },
           ),
@@ -118,7 +188,7 @@ export async function writeGraph(
     }
   }
 
-  // Phase 4: links.
+  // Phase 4: CONNECTS_TO links.
   let edges = 0;
   for (const batch of chunk(data.links, BATCH_SIZE)) {
     const session = driver.session();
@@ -148,9 +218,137 @@ export async function writeGraph(
     }
   }
 
-  // Phase 5: SW dynamic-leveling post-pass.
-  // Only runs if hierarchy.sw_dynamic_leveling.enabled AND the hierarchy
-  // actually knows about an SW role (skipping gracefully otherwise).
+  // Phase 5: sites — union of sitesportal rows and the sites derived from
+  // device names. Portal rows supply category/url; derived-only sites get
+  // nulls. Case-sensitive match on `name` (operator tooling is consistent
+  // on casing within a deployment).
+  const siteByName = new Map<string, SitePortalRow>();
+  for (const s of data.sites) {
+    if (!s.name) continue;
+    siteByName.set(s.name, {
+      name: s.name,
+      category: s.category,
+      url: s.url,
+    });
+  }
+  for (const d of data.devices) {
+    const site = deriveSiteFromDeviceName(d.name);
+    if (site === null) continue;
+    if (!siteByName.has(site)) {
+      siteByName.set(site, { name: site, category: null, url: null });
+    }
+  }
+  const sites = [...siteByName.values()];
+  for (const batch of chunk(sites, BATCH_SIZE)) {
+    const session = driver.session();
+    try {
+      await session.executeWrite((tx) =>
+        tx.run(
+          `UNWIND $batch AS s
+             MERGE (x:Site {name: s.name})
+             SET x.category = s.category,
+                 x.url      = s.url`,
+          { batch },
+        ),
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  // Phase 6: LOCATED_AT edges — only for devices whose derived site has a
+  // matching :Site node (true for every derived site by construction; also
+  // true if the device name's prefix matches a portal site).
+  let located_at_edges = 0;
+  const locatedPayload = data.devices
+    .map((d) => ({ name: d.name, site: deriveSiteFromDeviceName(d.name) }))
+    .filter((p): p is { name: string; site: string } => p.site !== null);
+  for (const batch of chunk(locatedPayload, BATCH_SIZE)) {
+    const session = driver.session();
+    try {
+      await session.executeWrite((tx) =>
+        tx.run(
+          `UNWIND $batch AS r
+             MATCH (d:Device {name: r.name})
+             MATCH (s:Site   {name: r.site})
+             MERGE (d)-[:LOCATED_AT]->(s)`,
+          { batch },
+        ),
+      );
+      located_at_edges += batch.length;
+    } finally {
+      await session.close();
+    }
+  }
+
+  // Phase 7: services.
+  for (const batch of chunk(data.services, BATCH_SIZE)) {
+    const session = driver.session();
+    try {
+      await session.executeWrite((tx) =>
+        tx.run(
+          `UNWIND $batch AS s
+             MERGE (x:Service {cid: s.cid})
+             SET x.mobily_cid      = s.mobily_cid,
+                 x.bandwidth       = s.bandwidth,
+                 x.protection_type = s.protection_type,
+                 x.region          = s.region`,
+          { batch },
+        ),
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  // Phase 8: TERMINATES_AT — drop edges whose endpoint device isn't in the
+  // graph. The MATCH ... MERGE combination handles this implicitly (MERGE
+  // on a MATCH miss does nothing), so we count on the caller's pre-drop
+  // bookkeeping for "missing device" logging.
+  let terminate_edges = 0;
+  for (const batch of chunk(data.terminates, BATCH_SIZE)) {
+    const session = driver.session();
+    try {
+      const res = await session.executeWrite((tx) =>
+        tx.run(
+          `UNWIND $batch AS t
+             MATCH (s:Service {cid: t.cid})
+             MATCH (d:Device  {name: t.device})
+             MERGE (s)-[r:TERMINATES_AT {role: t.role}]->(d)
+             RETURN count(r) AS c`,
+          { batch },
+        ),
+      );
+      const c = res.records[0]?.get("c");
+      terminate_edges += typeof c === "number" ? c : c?.toNumber?.() ?? 0;
+    } finally {
+      await session.close();
+    }
+  }
+
+  // Phase 9: PROTECTED_BY edges (primary → backup).
+  let protected_by_edges = 0;
+  for (const batch of chunk(data.protections, BATCH_SIZE)) {
+    const session = driver.session();
+    try {
+      const res = await session.executeWrite((tx) =>
+        tx.run(
+          `UNWIND $batch AS p
+             MATCH (primary:Service {cid: p.primary_cid})
+             MATCH (backup:Service  {cid: p.backup_cid})
+             MERGE (primary)-[r:PROTECTED_BY]->(backup)
+             RETURN count(r) AS c`,
+          { batch },
+        ),
+      );
+      const c = res.records[0]?.get("c");
+      protected_by_edges += typeof c === "number" ? c : c?.toNumber?.() ?? 0;
+    } finally {
+      await session.close();
+    }
+  }
+
+  // Phase 10: SW dynamic-leveling post-pass.
   if (
     resolverCfg.hierarchy.sw_dynamic_leveling.enabled &&
     allowed.has("SW")
@@ -177,5 +375,13 @@ export async function writeGraph(
     }
   }
 
-  return { nodes, edges };
+  return {
+    nodes,
+    edges,
+    sites: sites.length,
+    services: data.services.length,
+    terminate_edges,
+    located_at_edges,
+    protected_by_edges,
+  };
 }
