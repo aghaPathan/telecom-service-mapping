@@ -2,6 +2,8 @@
 
 > Internal web application that turns nightly LLDP adjacency data into an interactive, hierarchy-aware connectivity graph — so operators can trace a customer to the core, see blast-radius downstream of any device, and save their investigations for reuse.
 
+> **Status (as of this commit):** scaffolding only. The PRD (issue [#1](https://github.com/aghaPathan/telecom-service-mapping/issues/1)) and 11 implementation slices ([#2–#12](https://github.com/aghaPathan/telecom-service-mapping/issues)) are defined; no service code or compose stack has been committed yet. The sections below describe the **intended** architecture and developer experience. Commands that depend on services (Next.js, Neo4j, ingestor) only become executable once slices #2–#6 land.
+
 ---
 
 ## Table of contents
@@ -126,6 +128,8 @@ Deferred to v2: SPOF detection, domain/region-based RBAC, zero-downtime staging-
 ---
 
 ## Quick start (local dev)
+
+> **Note:** steps 1 and the `docker compose` / `npm run` commands below describe the **intended** developer experience and become fully executable once slices [#2](https://github.com/aghaPathan/telecom-service-mapping/issues/2) (compose stack + tracer bullet) and [#6](https://github.com/aghaPathan/telecom-service-mapping/issues/6) (cron + observability) land. Until then, only the source-DB role SQL (step 1) and `cp .env.example .env` (step 2) work as written.
 
 ### Prerequisites
 
