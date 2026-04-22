@@ -1,12 +1,11 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import PostgresAdapter from "@auth/pg-adapter";
-import { z } from "zod";
 import authConfig from "@/auth.config";
 import { getPool } from "@/lib/postgres";
-import { verifyPassword } from "@/lib/password";
 import { issueDbSessionCookie } from "@/lib/session-cookie";
 import { recordAudit } from "@/lib/audit";
+import { authenticateCredentials } from "@/lib/authenticate";
 import type { Role } from "@/lib/rbac";
 
 declare module "next-auth" {
@@ -17,22 +16,6 @@ declare module "next-auth" {
       role: Role;
     };
   }
-}
-
-const credentialsSchema = z.object({
-  email: z
-    .string()
-    .email()
-    .transform((s) => s.trim().toLowerCase()),
-  password: z.string().min(1),
-});
-
-interface UserRow {
-  id: string;
-  email: string;
-  password_hash: string;
-  role: Role;
-  is_active: boolean;
 }
 
 // NOTE: session.strategy is "database" — Auth.js v5's Credentials provider
@@ -51,33 +34,31 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(raw) {
-        const parsed = credentialsSchema.safeParse(raw);
-        if (!parsed.success) {
-          await recordAudit(null, "login_failed", null, { reason: "invalid_input" });
-          return null;
-        }
-        const { email, password } = parsed.data;
-        const { rows } = await getPool().query<UserRow>(
-          `SELECT id, email, password_hash, role, is_active FROM users WHERE email=$1`,
-          [email],
+        const rawEmail = (raw as { email?: unknown })?.email;
+        const email =
+          typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : null;
+        const result = await authenticateCredentials(
+          rawEmail,
+          (raw as { password?: unknown })?.password,
         );
-        const user = rows[0];
-        if (!user) {
-          await recordAudit(null, "login_failed", email, { reason: "no_such_user" });
-          return null;
+        switch (result.kind) {
+          case "invalid_input":
+            await recordAudit(null, "login_failed", null, { reason: "invalid_input" });
+            return null;
+          case "no_user":
+            await recordAudit(null, "login_failed", email, { reason: "no_such_user" });
+            return null;
+          case "inactive":
+            await recordAudit(result.userId, "login_denied_inactive", email, {});
+            return null;
+          case "bad_password":
+            await recordAudit(result.userId, "login_failed", email, { reason: "bad_password" });
+            return null;
+          case "ok":
+            await issueDbSessionCookie(result.user.id);
+            await recordAudit(result.user.id, "login", email, {});
+            return result.user;
         }
-        if (!user.is_active) {
-          await recordAudit(user.id, "login_denied_inactive", email, {});
-          return null;
-        }
-        const ok = await verifyPassword(password, user.password_hash);
-        if (!ok) {
-          await recordAudit(user.id, "login_failed", email, { reason: "bad_password" });
-          return null;
-        }
-        await issueDbSessionCookie(user.id);
-        await recordAudit(user.id, "login", email, {});
-        return { id: user.id, email: user.email, role: user.role };
       },
     }),
   ],

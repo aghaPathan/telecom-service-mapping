@@ -10,6 +10,15 @@ export function getPool(): Pool {
   return pool;
 }
 
+/** Close the singleton pool and reset it. Used by integration tests between
+ *  testcontainer lifecycles — not called by the running server. */
+export async function closePool(): Promise<void> {
+  if (pool) {
+    await pool.end();
+    pool = null;
+  }
+}
+
 export async function pingPostgres(): Promise<{ ok: boolean; latency_ms: number; error?: string }> {
   const started = Date.now();
   try {
