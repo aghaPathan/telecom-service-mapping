@@ -234,5 +234,6 @@ postgres/data/
 .DS_Store
 .serena/
 
-# Local Claude Code agent state
-.claude/
+# Local Claude Code agent state — keep shared references checked in.
+.claude/*
+!.claude/references/
