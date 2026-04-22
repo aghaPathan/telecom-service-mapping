@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile=false
+      - run: pnpm -r typecheck
+
+  smoke:
+    name: Compose smoke (Playwright)
+    runs-on: ubuntu-latest
+    needs: typecheck
+    env:
+      # Test-only placeholders. Overridden in real deploys via .env / secrets.
+      DATABASE_URL_SOURCE: postgres://nobody:nobody@unused:5432/unused
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app_pw_ci
+      POSTGRES_DB: app
+      DATABASE_URL: postgres://app:app_pw_ci@postgres:5432/app
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: neo4j_pw_ci
+      NEXTAUTH_SECRET: ci-secret-not-for-prod-00000000000000000000
+      NEXTAUTH_URL: http://localhost
+      INGEST_CRON: 0 2 * * *
+      CADDY_TLS_MODE: internal
+      CADDY_DOMAIN: localhost
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write .env for compose
+        run: |
+          cat > .env <<EOF
+          DATABASE_URL_SOURCE=${DATABASE_URL_SOURCE}
+          POSTGRES_USER=${POSTGRES_USER}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          POSTGRES_DB=${POSTGRES_DB}
+          DATABASE_URL=${DATABASE_URL}
+          NEO4J_URI=${NEO4J_URI}
+          NEO4J_USER=${NEO4J_USER}
+          NEO4J_PASSWORD=${NEO4J_PASSWORD}
+          NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+          NEXTAUTH_URL=${NEXTAUTH_URL}
+          INGEST_CRON=${INGEST_CRON}
+          CADDY_TLS_MODE=${CADDY_TLS_MODE}
+          CADDY_DOMAIN=${CADDY_DOMAIN}
+          EOF
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build stack
+        run: docker compose build
+
+      - name: Bring up stack (wait for health)
+        run: docker compose up -d --wait --wait-timeout 300
+
+      - name: Show container status
+        if: always()
+        run: docker compose ps
+
+      - name: Probe /api/health through Caddy
+        run: |
+          set -e
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost/api/health >/dev/null; then
+              echo "health OK on attempt $i"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "health never returned 200"
+          docker compose logs --tail=200
+          exit 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile=false
+      - name: Install Playwright browsers
+        run: pnpm --filter web exec playwright install --with-deps chromium
+      - name: Run Playwright smoke
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost
+        run: pnpm --filter web test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          if-no-files-found: ignore
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose logs --tail=500
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

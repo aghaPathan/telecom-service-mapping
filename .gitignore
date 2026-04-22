@@ -16,6 +16,8 @@ eggs/
 .eggs/
 lib/
 !apps/ui/src/lib/
+!apps/web/lib/
+!apps/ingestor/src/lib/
 lib64/
 parts/
 sdist/
@@ -207,12 +209,28 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Added W0 (#2)
-apps/ui/node_modules/
-apps/ui/.next/
-apps/ui/out/
-apps/ui/coverage/
-infra/compose/.env
+# Node / Next.js
+node_modules/
+.next/
+.turbo/
+out/
+coverage/
+*.tsbuildinfo
+.pnpm-store/
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Docker-mounted data volumes (keep out of repo)
+data/
+volumes/
+neo4j/data/
+neo4j/logs/
+neo4j/plugins/
+postgres/data/
+
 .DS_Store
 .serena/
 

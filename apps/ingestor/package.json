@@ -1,0 +1,23 @@
+{
+  "name": "ingestor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "ingest:seed": "node dist/seed.js",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'lint placeholder' && exit 0",
+    "test": "echo 'no unit tests yet' && exit 0"
+  },
+  "dependencies": {
+    "neo4j-driver": "5.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.16.11",
+    "tsx": "4.19.1",
+    "typescript": "5.6.3"
+  }
+}
