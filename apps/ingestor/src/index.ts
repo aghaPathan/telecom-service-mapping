@@ -60,18 +60,41 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
   await migrate(config.DATABASE_URL);
   const pool = getPool(config.DATABASE_URL);
 
-  // CI / tracer-bullet mode: migrations applied, no source read, no Neo4j write.
-  // Keeps `service_completed_successfully` green when the source DB is absent.
+  // CI / tracer-bullet mode: migrations applied, one seed Device written, no
+  // source read. Preserves the #2 tracer assertion (Devices in graph: 1) when
+  // the source DB is absent.
   if (config.INGEST_MODE === "smoke") {
     log("info", "ingestor_smoke_mode", {});
-    await closePool();
+    const seedDriver = neo4j.driver(
+      config.NEO4J_URI,
+      neo4j.auth.basic(config.NEO4J_USER, config.NEO4J_PASSWORD),
+      { connectionAcquisitionTimeout: 10_000 },
+    );
+    try {
+      await waitForNeo4j(seedDriver);
+      const session = seedDriver.session();
+      try {
+        await session.run(
+          "CREATE CONSTRAINT device_name_unique IF NOT EXISTS FOR (d:Device) REQUIRE d.name IS UNIQUE",
+        );
+        await session.run(
+          "MERGE (d:Device {name: $name}) ON CREATE SET d.created_at = timestamp()",
+          { name: "seed-01" },
+        );
+      } finally {
+        await session.close();
+      }
+    } finally {
+      await seedDriver.close();
+      await closePool();
+    }
     return {
       runId: 0,
       dryRun: opts.dryRun,
       sourceRows: 0,
       dropped: { null_b: 0, self_loop: 0, anomaly: 0 },
       warnings: [],
-      graph: { nodes: 0, edges: 0 },
+      graph: { nodes: 1, edges: 0 },
     };
   }
 
