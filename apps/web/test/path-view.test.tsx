@@ -41,7 +41,7 @@ describe("PathView", () => {
     expect(html).toContain("CORE");
   });
 
-  it("missing interface data does not crash", () => {
+  it("missing interface data renders em-dash fallbacks in connector and subline", () => {
     const partial: PathResponse = {
       status: "ok", length: 1,
       hops: [
@@ -52,6 +52,16 @@ describe("PathView", () => {
     const html = renderToStaticMarkup(<PathView data={partial} />);
     expect(html).toContain("A");
     expect(html).toContain("B");
+    // Connector is rendered between the two hops.
+    expect(html).toContain('data-testid="path-connector"');
+    // Isolate the connector region and assert em-dash fallbacks for null
+    // in_if / out_if on both sides of the arrow.
+    const connectorRegion = html.split('data-testid="path-connector"')[1] ?? "";
+    const connectorInner = connectorRegion.split("</div>")[0] ?? "";
+    const dashCount = (connectorInner.match(/—/g) ?? []).length;
+    expect(dashCount).toBeGreaterThanOrEqual(2);
+    // Subline for hops with null site/domain shows em-dash on both sides.
+    expect(html).toContain("— · —");
   });
 
   it("no_path with unreached_at renders reason + hint", () => {

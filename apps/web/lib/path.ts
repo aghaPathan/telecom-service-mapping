@@ -58,7 +58,7 @@ export const Hop = z.object({
 });
 export type Hop = z.infer<typeof Hop>;
 
-const DeviceRef = z.object({
+export const DeviceRef = z.object({
   name: z.string(),
   role: z.string(),
   level: z.number(),
@@ -67,11 +67,12 @@ const DeviceRef = z.object({
 });
 export type DeviceRef = z.infer<typeof DeviceRef>;
 
-const NoPathReason = z.enum([
+export const NoPathReasonSchema = z.enum([
   "island",
   "service_has_no_endpoint",
   "start_not_found",
 ]);
+export type NoPathReason = z.infer<typeof NoPathReasonSchema>;
 
 export const PathResponse = z.discriminatedUnion("status", [
   z.object({
@@ -81,7 +82,7 @@ export const PathResponse = z.discriminatedUnion("status", [
   }),
   z.object({
     status: z.literal("no_path"),
-    reason: NoPathReason,
+    reason: NoPathReasonSchema,
     unreached_at: DeviceRef.nullable(),
   }),
 ]);
@@ -89,6 +90,9 @@ export type PathResponse = z.infer<typeof PathResponse>;
 
 // ---------- Cypher resolver ----------
 
+// MAX_PATH_HOPS is a compile-time constant — Neo4j doesn't allow parameters
+// inside variable-length relationship bounds, so string interpolation is
+// the only option. Never make this configurable via env without validation.
 // 2× the deepest hierarchy level (5) with headroom for ring detours.
 const MAX_PATH_HOPS = 15;
 

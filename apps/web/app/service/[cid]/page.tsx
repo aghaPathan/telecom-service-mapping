@@ -15,12 +15,14 @@ export default async function ServicePage({
 
   // Same-process direct call — no HTTP round-trip, no auth cookie needed.
   let result: PathResponse | null = null;
-  let errMsg: string | null = null;
   try {
     result = await runPath({ kind: "service", value: cid });
   } catch (err) {
-    errMsg = err instanceof Error ? err.message : String(err);
-    log("error", "path_page_failed", { error: errMsg, kind: "service", value: cid });
+    log("error", "path_page_failed", {
+      error: err instanceof Error ? err.message : String(err),
+      kind: "service",
+      value: cid,
+    });
   }
 
   return (

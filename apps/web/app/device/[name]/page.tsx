@@ -15,12 +15,14 @@ export default async function DevicePage({
 
   // Same-process direct call — no HTTP round-trip, no auth cookie needed.
   let result: PathResponse | null = null;
-  let errMsg: string | null = null;
   try {
     result = await runPath({ kind: "device", value: name });
   } catch (err) {
-    errMsg = err instanceof Error ? err.message : String(err);
-    log("error", "path_page_failed", { error: errMsg, kind: "device", value: name });
+    log("error", "path_page_failed", {
+      error: err instanceof Error ? err.message : String(err),
+      kind: "device",
+      value: name,
+    });
   }
 
   return (

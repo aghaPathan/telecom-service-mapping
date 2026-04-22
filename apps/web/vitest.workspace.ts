@@ -5,15 +5,13 @@ const alias = {
   "@": path.resolve(__dirname, "./"),
 };
 
-// tsconfig.json sets `jsx: preserve` for Next.js; vitest uses esbuild which
-// needs an explicit jsx mode. `automatic` emits react/jsx-runtime imports so
-// tests don't need React in scope.
-const esbuild = { jsx: "automatic" as const };
-
 export default defineWorkspace([
   {
     resolve: { alias },
-    esbuild,
+    // tsconfig.json sets `jsx: preserve` for Next.js; vitest uses esbuild which
+    // needs an explicit jsx mode. `automatic` emits react/jsx-runtime imports so
+    // tests don't need React in scope. Scoped to unit — integration has no JSX.
+    esbuild: { jsx: "automatic" as const },
     test: {
       name: "unit",
       environment: "node",
@@ -24,7 +22,6 @@ export default defineWorkspace([
   },
   {
     resolve: { alias },
-    esbuild,
     test: {
       name: "integration",
       environment: "node",

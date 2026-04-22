@@ -1,15 +1,7 @@
-import type { PathResponse, Hop } from "@/lib/path";
+import type { PathResponse, Hop, DeviceRef, NoPathReason } from "@/lib/path";
 import { RoleBadge } from "@/app/_components/role-badge";
 
-type Unreached = {
-  name: string;
-  role: string;
-  level: number;
-  site: string | null;
-  domain: string | null;
-};
-
-function reasonLabel(reason: string): string {
+function reasonLabel(reason: NoPathReason): string {
   switch (reason) {
     case "island":
       return "No path to core";
@@ -17,8 +9,6 @@ function reasonLabel(reason: string): string {
       return "Service has no endpoint device";
     case "start_not_found":
       return "Device not found";
-    default:
-      return reason;
   }
 }
 
@@ -54,8 +44,8 @@ function NoPathPanel({
   reason,
   unreached_at,
 }: {
-  reason: string;
-  unreached_at: Unreached | null;
+  reason: NoPathReason;
+  unreached_at: DeviceRef | null;
 }) {
   return (
     <div
@@ -77,16 +67,15 @@ function NoPathPanel({
 
 export function PathView({ data }: { data: PathResponse }) {
   if (data.status === "no_path") {
-    return (
-      <NoPathPanel
-        reason={data.reason}
-        unreached_at={data.unreached_at as Unreached | null}
-      />
-    );
+    return <NoPathPanel reason={data.reason} unreached_at={data.unreached_at} />;
   }
   const { hops } = data;
   return (
-    <ol className="space-y-0" data-testid="path-view">
+    <ol
+      className="space-y-0"
+      data-testid="path-view"
+      aria-label="Path trace hops"
+    >
       {hops.map((hop, i) => {
         const next = hops[i + 1];
         return (
