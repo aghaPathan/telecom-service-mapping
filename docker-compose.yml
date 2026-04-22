@@ -51,6 +51,11 @@ services:
       DATABASE_URL_SOURCE: ${DATABASE_URL_SOURCE}
       INGEST_CRON: ${INGEST_CRON}
       INGEST_MODE: ${INGEST_MODE:-full}
+      RESOLVER_CONFIG_DIR: /app/config
+    volumes:
+      # Live-editable role/hierarchy YAML — edit host file + re-ingest to pick
+      # up changes without rebuilding the image.
+      - ./config:/app/config:ro
     depends_on:
       neo4j:
         condition: service_healthy

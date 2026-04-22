@@ -5,6 +5,9 @@ import neo4j, { type Driver } from "neo4j-driver";
 import { runIngest } from "../src/index.ts";
 import { dedupLldpRows, type RawLldpRow } from "../src/dedup.ts";
 import { FIXTURE } from "./fixtures/lldp-50.ts";
+import { writeFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 const { Client } = pg;
 
@@ -87,6 +90,8 @@ describe("ingest integration (testcontainers)", () => {
           vendor_b             TEXT,
           domain_a             TEXT,
           domain_b             TEXT,
+          type_a               TEXT,
+          type_b               TEXT,
           updated_at           TIMESTAMPTZ NOT NULL,
           status               BOOLEAN NOT NULL DEFAULT true
         );
@@ -99,8 +104,9 @@ describe("ingest integration (testcontainers)", () => {
              device_b_name, device_b_interface,
              device_b_ip, device_b_mac,
              vendor_a, vendor_b, domain_a, domain_b,
+             type_a, type_b,
              updated_at, status
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true)`,
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true)`,
           [
             r.device_a_name,
             r.device_a_interface,
@@ -115,6 +121,8 @@ describe("ingest integration (testcontainers)", () => {
             r.vendor_b,
             r.domain_a,
             r.domain_b,
+            r.type_a,
+            r.type_b,
             r.updated_at,
           ],
         );
@@ -292,6 +300,138 @@ describe("ingest integration (testcontainers)", () => {
       expect(rows[0].dry_run).toBe(true);
     } finally {
       await ac.end();
+    }
+  });
+
+  it("applies roles + levels from YAML config (default repo config)", async () => {
+    const result = await runIngest({
+      dryRun: false,
+      config: {
+        DATABASE_URL: appUrl,
+        DATABASE_URL_SOURCE: sourceUrl,
+        NEO4J_URI: neoUri,
+        NEO4J_USER: neoUser,
+        NEO4J_PASSWORD: neoPassword,
+      },
+    });
+    expect(result.graph.nodes).toBeGreaterThan(0);
+
+    const driver = neo4j.driver(neoUri, neo4j.auth.basic(neoUser, neoPassword));
+    try {
+      const sess = driver.session();
+      try {
+        // symmetric pair devices had type_a=ICOR / IUPE → resolved to CORE/UPE.
+        const core = await sess.run(
+          "MATCH (d:Device:CORE) RETURN d.name AS name, d.level AS level LIMIT 1",
+        );
+        expect(core.records).toHaveLength(1);
+        const coreLvl = core.records[0]!.get("level");
+        expect(typeof coreLvl === "number" ? coreLvl : coreLvl.toNumber()).toBe(1);
+
+        const upe = await sess.run(
+          "MATCH (d:Device:UPE) RETURN count(d) AS c",
+        );
+        expect(upe.records[0]!.get("c").toNumber()).toBeGreaterThan(0);
+
+        // one-direction-pair devices: a=ICSG→CSG, b=null→Unknown.
+        const unknown = await sess.run(
+          "MATCH (d:Device:Unknown) RETURN count(d) AS c",
+        );
+        expect(unknown.records[0]!.get("c").toNumber()).toBeGreaterThan(0);
+      } finally {
+        await sess.close();
+      }
+    } finally {
+      await driver.close();
+    }
+  });
+
+  it("SW dynamic-leveling post-pass re-levels based on topology", async () => {
+    // Custom config: maps a test-only type code to SW/Ran/Customer so we can
+    // drive topology without polluting repo config.
+    const cfgDir = mkdtempSync(path.join(tmpdir(), "sw-pass-"));
+    writeFileSync(
+      path.join(cfgDir, "hierarchy.yaml"),
+      `levels:
+  - { level: 1, label: Core, roles: [CORE] }
+  - { level: 3, label: CustomerAggregation, roles: [SW] }
+  - { level: 4, label: Access, roles: [Ran, Customer] }
+unknown_label: Unknown
+unknown_level: 99
+sw_dynamic_leveling:
+  enabled: true
+`,
+    );
+    writeFileSync(
+      path.join(cfgDir, "role_codes.yaml"),
+      `type_map:
+  TCOR: CORE
+  TSWI: SW
+  TRAN: Ran
+  TCUS: Customer
+name_prefix_map: {}
+fallback: Unknown
+resolver_priority: [type_column, name_prefix, fallback]
+`,
+    );
+
+    // Seed dedicated fixture rows: sw-core connects to a core; sw-acc connects
+    // to a Ran; sw-iso connects only to another SW. Full-refresh wipes prior.
+    const sc = new pg.Client({ connectionString: sourceUrl });
+    await sc.connect();
+    try {
+      await sc.query("TRUNCATE app_lldp");
+      const rows: [string, string, string, string, string, string][] = [
+        // [a, a_if, b, b_if, type_a, type_b]
+        ["SW-CORE-BOUND", "xe-1", "CORE-01", "xe-1", "TSWI", "TCOR"],
+        ["SW-ACCESS-BOUND", "xe-2", "RAN-01", "xe-2", "TSWI", "TRAN"],
+        ["SW-ISOLATED", "xe-3", "SW-ISOLATED-PEER", "xe-3", "TSWI", "TSWI"],
+      ];
+      for (const [a, ai, b, bi, ta, tb] of rows) {
+        await sc.query(
+          `INSERT INTO app_lldp
+             (device_a_name, device_a_interface, device_b_name, device_b_interface,
+              type_a, type_b, updated_at, status)
+           VALUES ($1,$2,$3,$4,$5,$6, now(), true)`,
+          [a, ai, b, bi, ta, tb],
+        );
+      }
+    } finally {
+      await sc.end();
+    }
+
+    await runIngest({
+      dryRun: false,
+      resolverConfigDir: cfgDir,
+      config: {
+        DATABASE_URL: appUrl,
+        DATABASE_URL_SOURCE: sourceUrl,
+        NEO4J_URI: neoUri,
+        NEO4J_USER: neoUser,
+        NEO4J_PASSWORD: neoPassword,
+      },
+    });
+
+    const driver = neo4j.driver(neoUri, neo4j.auth.basic(neoUser, neoPassword));
+    try {
+      const sess = driver.session();
+      try {
+        const q = async (name: string): Promise<number> => {
+          const r = await sess.run(
+            "MATCH (d:Device {name: $n}) RETURN d.level AS level",
+            { n: name },
+          );
+          const lvl = r.records[0]!.get("level");
+          return typeof lvl === "number" ? lvl : lvl.toNumber();
+        };
+        expect(await q("SW-CORE-BOUND")).toBe(2);     // connected to CORE
+        expect(await q("SW-ACCESS-BOUND")).toBe(4);   // connected to Ran
+        expect(await q("SW-ISOLATED")).toBe(3);       // only connected to SW → default
+      } finally {
+        await sess.close();
+      }
+    } finally {
+      await driver.close();
     }
   });
 });

@@ -31,6 +31,8 @@ export type RawLldpRow = {
   vendor_b: string | null;
   domain_a: string | null;
   domain_b: string | null;
+  type_a: string | null;
+  type_b: string | null;
   updated_at: Date;
 };
 
@@ -40,6 +42,12 @@ export type DeviceProps = {
   domain: string | null;
   ip: string | null;
   mac: string | null;
+  /** Raw role code from source `type_a`/`type_b` (first non-null observation). */
+  type_code: string | null;
+  /** Resolved canonical role (e.g. CORE, UPE, Unknown). Populated post-dedup. */
+  role?: string;
+  /** Hierarchy level for the resolved role. Populated post-dedup. */
+  level?: number;
 };
 
 export type LinkProps = {
@@ -78,6 +86,8 @@ type CanonicalRow = {
   loDomain: string | null;
   hiVendor: string | null;
   hiDomain: string | null;
+  loType: string | null;
+  hiType: string | null;
   trunk: string | null;
   updated_at: Date;
 };
@@ -110,6 +120,8 @@ function canonicalize(row: RawLldpRow): CanonicalRow | null {
   const loDomain = aIsLo ? row.domain_a : row.domain_b;
   const hiVendor = aIsLo ? row.vendor_b : row.vendor_a;
   const hiDomain = aIsLo ? row.domain_b : row.domain_a;
+  const loType = aIsLo ? row.type_a : row.type_b;
+  const hiType = aIsLo ? row.type_b : row.type_a;
 
   const key = `${lo.toLowerCase()}|${loIf ?? ""}‖${hi.toLowerCase()}|${hiIf ?? ""}`;
 
@@ -127,6 +139,8 @@ function canonicalize(row: RawLldpRow): CanonicalRow | null {
     loDomain,
     hiVendor,
     hiDomain,
+    loType,
+    hiType,
     trunk: row.device_a_trunk_name,
     updated_at: row.updated_at,
   };
@@ -169,11 +183,12 @@ export function dedupLldpRows(rows: readonly RawLldpRow[]): DedupResult {
     domain: string | null,
     ip: string | null,
     mac: string | null,
+    type_code: string | null,
   ): void => {
     const k = name.toLowerCase();
     const prev = deviceMap.get(k);
     if (!prev) {
-      deviceMap.set(k, { name, vendor, domain, ip, mac });
+      deviceMap.set(k, { name, vendor, domain, ip, mac, type_code });
       return;
     }
     // First-seen casing wins; properties prefer first non-null.
@@ -181,6 +196,7 @@ export function dedupLldpRows(rows: readonly RawLldpRow[]): DedupResult {
     prev.domain = firstNonNull(prev.domain, domain);
     prev.ip = firstNonNull(prev.ip, ip);
     prev.mac = firstNonNull(prev.mac, mac);
+    prev.type_code = firstNonNull(prev.type_code, type_code);
   };
 
   for (const [key, bucket] of groups) {
@@ -216,6 +232,8 @@ export function dedupLldpRows(rows: readonly RawLldpRow[]): DedupResult {
         loDomain: firstNonNull(x.loDomain, y.loDomain),
         hiVendor: firstNonNull(x.hiVendor, y.hiVendor),
         hiDomain: firstNonNull(x.hiDomain, y.hiDomain),
+        loType: firstNonNull(x.loType, y.loType),
+        hiType: firstNonNull(x.hiType, y.hiType),
         trunk: firstNonNull(x.trunk, y.trunk),
         updated_at: newer.updated_at,
       };
@@ -223,8 +241,22 @@ export function dedupLldpRows(rows: readonly RawLldpRow[]): DedupResult {
       merged = bucket[0]!;
     }
 
-    bumpDevice(merged.lo, merged.loVendor, merged.loDomain, merged.loIp, merged.loMac);
-    bumpDevice(merged.hi, merged.hiVendor, merged.hiDomain, merged.hiIp, merged.hiMac);
+    bumpDevice(
+      merged.lo,
+      merged.loVendor,
+      merged.loDomain,
+      merged.loIp,
+      merged.loMac,
+      merged.loType,
+    );
+    bumpDevice(
+      merged.hi,
+      merged.hiVendor,
+      merged.hiDomain,
+      merged.hiIp,
+      merged.hiMac,
+      merged.hiType,
+    );
 
     links.push({
       a: merged.lo,

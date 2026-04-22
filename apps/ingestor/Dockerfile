@@ -26,6 +26,10 @@ WORKDIR /app
 RUN addgroup -g 1001 -S nodejs && adduser -S ingestor -u 1001
 
 COPY --from=builder /deploy /app
+# Ship the default YAML configs inside the image so the container runs even
+# without a bind-mount. Operators override by mounting ./config to /app/config.
+COPY config /app/config
+ENV RESOLVER_CONFIG_DIR=/app/config
 
 USER ingestor
 CMD ["node", "dist/index.js"]
