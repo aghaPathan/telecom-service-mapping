@@ -77,6 +77,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       NEXTAUTH_URL: ${NEXTAUTH_URL}
+      # Auth.js v5 requires this when Next.js runs behind a reverse proxy
+      # (Caddy) on non-Vercel infra. Without it the Host header from Caddy
+      # is rejected and the login callback returns 400.
+      AUTH_TRUST_HOST: "true"
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
       PORT: "3000"
