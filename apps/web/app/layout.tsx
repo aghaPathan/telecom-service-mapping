@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { getSession } from "@/lib/session";
 import { FreshnessBadge } from "./_components/freshness-badge";
+import { LogoutButton } from "./_components/logout-button";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -9,11 +11,12 @@ export const metadata: Metadata = {
   description: "LLDP-derived telecom connectivity graph",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const session = await getSession();
   return (
     <html lang="en">
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
@@ -25,19 +28,35 @@ export default function RootLayout({
             >
               Telecom Service Mapping
             </Link>
-            <Suspense
-              fallback={
-                <span
-                  data-testid="freshness-badge"
-                  className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-300"
-                >
-                  Loading…
-                </span>
-              }
-            >
-              {/* Server component: does its own DB fetch. */}
-              <FreshnessBadge />
-            </Suspense>
+            <div className="flex items-center gap-3">
+              {session?.user ? (
+                <>
+                  <span
+                    data-testid="session-pill"
+                    className="text-xs text-slate-600"
+                  >
+                    {session.user.email}{" "}
+                    <span className="text-slate-400">
+                      ({session.user.role})
+                    </span>
+                  </span>
+                  <LogoutButton />
+                </>
+              ) : null}
+              <Suspense
+                fallback={
+                  <span
+                    data-testid="freshness-badge"
+                    className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-300"
+                  >
+                    Loading…
+                  </span>
+                }
+              >
+                {/* Server component: does its own DB fetch. */}
+                <FreshnessBadge />
+              </Suspense>
+            </div>
           </div>
         </header>
         {children}

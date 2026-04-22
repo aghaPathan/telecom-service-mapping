@@ -8,27 +8,38 @@
     "start": "next start -p 3000 -H 0.0.0.0",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'no unit tests yet' && exit 0",
-    "test:e2e": "playwright test"
+    "test": "vitest run --project unit",
+    "test:int": "vitest run --project integration",
+    "test:e2e": "playwright test",
+    "create-admin": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "next": "14.2.15",
+    "bcryptjs": "2.4.3",
     "neo4j-driver": "5.25.0",
     "pg": "8.13.0",
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "18.3.1",
+    "tsx": "4.19.1",
+    "zod": "3.23.8"
   },
   "devDependencies": {
     "@playwright/test": "1.48.0",
+    "@testcontainers/postgresql": "10.13.2",
+    "@tsm/db": "workspace:*",
+    "@types/bcryptjs": "2.4.6",
     "@types/node": "20.16.11",
     "@types/pg": "8.11.10",
     "@types/react": "18.3.11",
     "@types/react-dom": "18.3.0",
+    "@vitest/coverage-v8": "2.1.3",
     "autoprefixer": "10.4.20",
     "eslint": "8.57.1",
     "eslint-config-next": "14.2.15",
     "postcss": "8.4.47",
     "tailwindcss": "3.4.13",
-    "typescript": "5.6.3"
+    "testcontainers": "10.13.2",
+    "typescript": "5.6.3",
+    "vitest": "2.1.3"
   }
 }

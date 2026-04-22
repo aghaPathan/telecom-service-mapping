@@ -11,6 +11,33 @@ Docker-composed internal web app that ingests LLDP adjacency data nightly from a
 
 ---
 
+## Quick Start
+
+```bash
+pnpm install
+pnpm --filter @tsm/db build      # build shared workspace package first
+pnpm -r typecheck                # tsc --noEmit across workspace
+pnpm --filter ingestor test      # vitest + testcontainers (needs Docker)
+pnpm --filter web test:e2e       # Playwright against PLAYWRIGHT_BASE_URL
+```
+
+### Compose stack
+
+```bash
+cp .env.example .env             # fill in secrets — never commit
+docker compose build
+docker compose up -d --wait      # Caddy on :80, other services internal
+docker compose logs -f ingestor  # watch nightly cron ticks
+```
+
+### Ingestor CLI (`pnpm --filter ingestor dev` locally, or `node dist/index.js` in the container)
+
+- `--dry-run` — run source → dedup → resolver, skip Neo4j write, record run row
+- `--once`    — run once and exit (no cron). Implied by `--dry-run`.
+- no flag     — long-lived `node-cron` scheduler (skipped when `INGEST_MODE=smoke`, which runs a one-shot seed and exits)
+
+---
+
 ## Data sensitivity — **read first**
 
 The source database contains **real operator production data** (Mobily / Saudi operator context: `mobily_cid`, real hostnames, customer circuit IDs).
@@ -67,7 +94,7 @@ Five compose services: `caddy`, `web`, `postgres`, `neo4j`, `ingestor`. Web is n
 | Hierarchy | `config/hierarchy.yaml` (configurable) — Core → Aggregation → CustomerAggregation → Transport (L3.5) → Access → Customer |
 | Role resolution | `config/role_codes.yaml` (configurable) — priority: `type_column` → name prefix → `Unknown` |
 | SW leveling | Dynamic post-ingest Cypher pass, based on topology |
-| Auth | Auth.js v5 + Credentials + bcrypt(cost=12) + **database** sessions (revocable) |
+| Auth | Auth.js v5 + Credentials + bcrypt(cost=12) + **database** sessions (revocable) — see [ADR 0001](docs/decisions/0001-auth-stack.md) |
 | RBAC | Three roles: `admin` / `operator` / `viewer`. No domain/region filtering in MVP. |
 | Provisioning | Admin-only via `npm run create-admin` CLI — **no self-signup** |
 | TLS | Caddy reverse-proxy with auto-TLS; cookies always `Secure` outside dev |
@@ -127,9 +154,10 @@ Other `app_*` tables (`alarms`, `isolations`, `techbuilding`, `span`, `screenpor
 │   ├── web/           # Next.js 14 (App Router) + Tailwind + Auth.js v5
 │   └── ingestor/      # Node + node-cron + Neo4j driver + pg
 ├── packages/
-│   ├── config/        # hierarchy.yaml + role_codes.yaml loaders (shared)
-│   ├── graph/         # Cypher helpers used by both web and ingestor
-│   └── db/            # Drizzle schema + migrations for app Postgres
+│   └── db/            # node-pg-migrate .sql migrations + shared pg Pool helper
+│                      # (packages/config and packages/graph are not yet
+│                      # extracted — shared code currently lives in
+│                      # apps/ingestor/src; split when the web app needs it)
 ├── config/
 │   ├── hierarchy.yaml
 │   └── role_codes.yaml
@@ -176,6 +204,7 @@ Monorepo managed with `pnpm` workspaces (unless a strong reason emerges to diver
 - **Don't use JWT sessions.** Sessions are DB-backed so admins can revoke.
 - **Don't add interface nodes** (`:Interface`) in MVP — interface is an edge property.
 - **Don't trust the source DB's unique constraint alone.** It includes IP + MAC; a stale IP rotation produces duplicate logical links. Handle in ingestor.
+- **Don't treat `ingestion_runs.skipped=true` as a failure.** It's a benign row written when the cron fires while a prior run is still `status='running'`. The freshness badge and history page intentionally filter skipped rows out of "last real refresh".
 
 ---
 
@@ -188,6 +217,9 @@ Monorepo managed with `pnpm` workspaces (unless a strong reason emerges to diver
 | `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | Neo4j connection |
 | `NEXTAUTH_SECRET` / `NEXTAUTH_URL` | Auth.js |
 | `INGEST_CRON` | Cron expression for nightly ingest (default `0 2 * * *`) |
+| `INGEST_MODE` | `full` (default — real source + cron) \| `smoke` (CI tracer: one-shot seed of a single `:Device {name:'seed-01'}`, then exit) |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | App Postgres container bootstrap |
+| `CADDY_DOMAIN` | Hostname Caddy serves (e.g. `localhost` in CI) |
 | `CADDY_TLS_MODE` | `internal` \| `tailscale` \| `acme` |
 
 ---

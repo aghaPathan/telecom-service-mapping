@@ -1,10 +1,18 @@
 import { test, expect } from "@playwright/test";
 
-test("landing page shows seed device count", async ({ page }) => {
+// After middleware (#7), anonymous access to most routes redirects to /login.
+// These smoke tests cover only what is reachable anonymously. Authenticated
+// flows (session pill, freshness badge under login, etc.) live in
+// auth.spec.ts (batch 7).
+
+test("landing page redirects anonymous to /login", async ({ page }) => {
+  // Middleware intercepts `/` for unauth'd users and sends them to /login
+  // with the original path encoded in `?next=`. We assert the login form
+  // renders as proof the redirect landed.
   await page.goto("/");
-  const el = page.getByTestId("device-count");
-  await expect(el).toBeVisible();
-  await expect(el).toHaveText("Devices in graph: 1");
+  await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByLabel("Email")).toBeVisible();
+  await expect(page.getByLabel("Password")).toBeVisible();
 });
 
 test("health endpoint returns 200 with both deps ok", async ({ request }) => {
@@ -16,29 +24,28 @@ test("health endpoint returns 200 with both deps ok", async ({ request }) => {
   expect(body.neo4j.ok).toBe(true);
 });
 
-test("header freshness badge renders", async ({ page }) => {
-  await page.goto("/");
-  const badge = page.getByTestId("freshness-badge");
-  await expect(badge).toBeVisible();
-  // In smoke mode there may be no ingestion_runs row — badge degrades to
-  // "No ingest yet". In full mode it shows "Last refresh: …". Either is valid.
-  const text = (await badge.textContent()) ?? "";
-  expect(text.length).toBeGreaterThan(0);
-});
-
-test("/api/ingestion/status returns 200 with typed shape", async ({
+test("/api/ingestion/status redirects unauthenticated caller", async ({
   request,
 }) => {
-  const res = await request.get("/api/ingestion/status");
-  expect(res.status()).toBe(200);
-  const body = await res.json();
-  expect(body).toHaveProperty("latest");
-  expect(body).toHaveProperty("graph");
+  // Middleware intercepts before the route handler runs.
+  const res = await request.get("/api/ingestion/status", {
+    maxRedirects: 0,
+  });
+  // Middleware uses Response.redirect which returns 302; Next upgrades POSTs
+  // to 307 to preserve method. Accept either — the semantic is "redirected to login".
+  expect([302, 307]).toContain(res.status());
+  expect(res.headers()["location"] ?? "").toMatch(/\/login/);
 });
 
-test("/api/ingestion/run denies unauthenticated POST", async ({ request }) => {
-  const res = await request.post("/api/ingestion/run");
-  expect(res.status()).toBe(403);
-  const body = await res.json();
-  expect(body.error).toBe("forbidden");
+test("/api/ingestion/run redirects unauthenticated POST", async ({
+  request,
+}) => {
+  // Middleware intercepts before requireRole can return 403.
+  const res = await request.post("/api/ingestion/run", {
+    maxRedirects: 0,
+  });
+  // Middleware uses Response.redirect which returns 302; Next upgrades POSTs
+  // to 307 to preserve method. Accept either — the semantic is "redirected to login".
+  expect([302, 307]).toContain(res.status());
+  expect(res.headers()["location"] ?? "").toMatch(/\/login/);
 });

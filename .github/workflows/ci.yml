@@ -73,10 +73,10 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build stack
-        run: docker compose build
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml build
 
       - name: Bring up stack (wait for health)
-        run: docker compose up -d --wait --wait-timeout 300
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --wait --wait-timeout 300
 
       - name: Show container status
         if: always()
@@ -109,6 +109,9 @@ jobs:
       - name: Run Playwright smoke
         env:
           PLAYWRIGHT_BASE_URL: http://localhost
+          # Playwright runs outside the compose network; reach pg via the
+          # localhost mapping from docker-compose.ci.yml for E2E seed/teardown.
+          DATABASE_URL: postgres://app:app_pw_ci@127.0.0.1:5432/app
         run: pnpm --filter web test:e2e
 
       - name: Upload Playwright report on failure
