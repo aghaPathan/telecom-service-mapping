@@ -1,8 +1,10 @@
 import { requireRole } from "@/lib/rbac";
+import { runPath, type PathResponse } from "@/lib/path";
+import { PathView } from "@/app/_components/path-view";
+import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
-// Stub page — path-trace (#9) and downstream (#10) will fill this in.
 export default async function DevicePage({
   params,
 }: {
@@ -10,6 +12,17 @@ export default async function DevicePage({
 }) {
   await requireRole("viewer");
   const name = decodeURIComponent(params.name);
+
+  // Same-process direct call — no HTTP round-trip, no auth cookie needed.
+  let result: PathResponse | null = null;
+  let errMsg: string | null = null;
+  try {
+    result = await runPath({ kind: "device", value: name });
+  } catch (err) {
+    errMsg = err instanceof Error ? err.message : String(err);
+    log("error", "path_page_failed", { error: errMsg, kind: "device", value: name });
+  }
+
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
       <h1
@@ -18,9 +31,18 @@ export default async function DevicePage({
       >
         {name}
       </h1>
-      <p className="mt-2 text-slate-600">
-        Device detail page — path trace and downstream views ship in #9 and #10.
-      </p>
+      <div className="mt-6">
+        {result ? (
+          <PathView data={result} />
+        ) : (
+          <div
+            className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 ring-1 ring-amber-100"
+            data-testid="path-error"
+          >
+            Path trace unavailable. Neo4j may be offline — try again in a moment.
+          </div>
+        )}
+      </div>
     </main>
   );
 }
