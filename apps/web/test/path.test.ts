@@ -84,7 +84,7 @@ describe("PathResponse schema", () => {
     const r = PathResponse.parse({
       status: "no_path",
       reason: "island",
-      unreached_at: { name: "Island", role: "CSG", level: 3 },
+      unreached_at: { name: "Island", role: "CSG", level: 3, site: null, domain: null },
     });
     expect(r.status).toBe("no_path");
   });

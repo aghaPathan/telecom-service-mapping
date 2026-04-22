@@ -99,6 +99,8 @@ describe("runPath against live Neo4j", () => {
     if (r.status !== "no_path") throw new Error();
     expect(r.reason).toBe("island");
     expect(r.unreached_at?.name).toBe("Island");
+    expect(r.unreached_at?.site).toBe("I");
+    expect(r.unreached_at?.domain).toBe("D");
   });
 
   it("unknown device returns no_path with reason start_not_found", async () => {

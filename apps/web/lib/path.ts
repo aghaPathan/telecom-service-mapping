@@ -62,6 +62,8 @@ const DeviceRef = z.object({
   name: z.string(),
   role: z.string(),
   level: z.number(),
+  site: z.string().nullable(),
+  domain: z.string().nullable(),
 });
 export type DeviceRef = z.infer<typeof DeviceRef>;
 
@@ -244,7 +246,7 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
        MATCH p = (start)-[:CONNECTS_TO*0..15]-(reached:Device)
        WHERE ALL(i IN range(0, length(p) - 1)
                  WHERE (nodes(p)[i]).level >= (nodes(p)[i + 1]).level)
-       RETURN reached { .name, .role, .level } AS node
+       RETURN reached { .name, .role, .level, .site, .domain } AS node
        ORDER BY reached.level ASC
        LIMIT 1`,
       { startName },
@@ -258,6 +260,8 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
           name: String(n.name),
           role: String(n.role ?? "Unknown"),
           level: toNum(n.level ?? 0),
+          site: toStrOrNull(n.site),
+          domain: toStrOrNull(n.domain),
         },
       };
     }
@@ -265,7 +269,7 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
     // BFS returned nothing — fallback to the start device itself.
     const startRes = await session.run(
       `MATCH (d:Device {name: $startName})
-       RETURN d { .name, .role, .level } AS node`,
+       RETURN d { .name, .role, .level, .site, .domain } AS node`,
       { startName },
     );
     if (startRes.records.length > 0) {
@@ -277,6 +281,8 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
           name: String(n.name),
           role: String(n.role ?? "Unknown"),
           level: toNum(n.level ?? 0),
+          site: toStrOrNull(n.site),
+          domain: toStrOrNull(n.domain),
         },
       };
     }
