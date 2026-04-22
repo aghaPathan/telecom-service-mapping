@@ -13,8 +13,8 @@
 //
 // Null / undefined map to the empty string; numbers are stringified.
 
-const FORMULA_LEADERS = new Set(["=", "+", "-", "@", "\t"]);
-const CSV_SPECIAL = /[,"\r\n]/;
+const FORMULA_LEADERS = new Set(["=", "+", "-", "@", "\t", "\r"]);
+const CSV_SPECIAL = /[,"\r\n\t]/;
 
 export type CsvCell = string | number | null | undefined;
 

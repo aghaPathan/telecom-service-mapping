@@ -46,6 +46,14 @@ describe("csvEscape", () => {
     expect(csvEscape("\tfoo")).toBe('"\'\tfoo"');
   });
 
+  it("prefixes leading CR with apostrophe and quotes", () => {
+    expect(csvEscape("\rfoo")).toBe('"\'\rfoo"');
+  });
+
+  it("quotes values with embedded tabs", () => {
+    expect(csvEscape("a\tb")).toBe('"a\tb"');
+  });
+
   it("stringifies numbers", () => {
     expect(csvEscape(42)).toBe("42");
   });
