@@ -42,7 +42,6 @@ const NeighborOptsSchema = z.object({
   sortBy: z.enum(["role", "level"]),
 });
 
-
 // ---------- Exports ----------
 
 export async function loadDevice(name: string): Promise<DeviceDetail | null> {
