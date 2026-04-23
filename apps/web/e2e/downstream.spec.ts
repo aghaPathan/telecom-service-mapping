@@ -182,7 +182,7 @@ test.describe.serial("downstream (#10) — page, filter, CSV export", () => {
     await page.waitForURL((u) => !u.pathname.startsWith("/login"));
 
     await page.goto(`/device/${UPE}`);
-    await page.getByTestId("downstream-link").click();
+    await page.getByTestId("action-downstream").click();
 
     await page.waitForURL(new RegExp(`/device/${UPE}/downstream`));
     await expect(page.getByTestId("downstream-summary")).toBeVisible();
