@@ -163,6 +163,34 @@ describe("resolveRole", () => {
   });
 });
 
+describe("buildResolverConfig hostname-parse config", () => {
+  it("exposes a HostnameParseConfig derived from name_token + vendor_token_map", () => {
+    const withVendors = buildResolverConfig(HIERARCHY, {
+      ...ROLES,
+      vendor_token_map: { NO: "Nokia", HU: "Huawei" },
+    });
+    expect(withVendors.hostname).toEqual({
+      site_token_index: 0,
+      role_token_index: 1,
+      vendor_token_index: 2,
+      separator: "-",
+      role_map: withVendors.roles.name_token?.map ?? {},
+      vendor_token_map: { NO: "Nokia", HU: "Huawei" },
+    });
+  });
+
+  it("defaults to index 1 / separator '-' when name_token is omitted", () => {
+    const noNameToken = buildResolverConfig(HIERARCHY, {
+      ...ROLES,
+      name_token: undefined,
+    });
+    expect(noNameToken.hostname.role_token_index).toBe(1);
+    expect(noNameToken.hostname.vendor_token_index).toBe(2);
+    expect(noNameToken.hostname.separator).toBe("-");
+    expect(noNameToken.hostname.role_map).toEqual({});
+  });
+});
+
 describe("buildResolverConfig", () => {
   it("rejects a hierarchy that lists the same role in multiple levels", () => {
     const bad: HierarchyConfig = {
@@ -189,6 +217,10 @@ describe("loadResolverConfigFromDir", () => {
     expect(loaded.roles.type_map["CORE"]).toBe("CORE");
     expect(loaded.roles.type_map["Ran"]).toBe("RAN");
     expect(loaded.roles.type_map["Business Customer"]).toBe("Customer");
+    // S15: vendor_token_map reaches the built hostname-parse config.
+    expect(loaded.hostname.vendor_token_map["NO"]).toBe("Nokia");
+    expect(loaded.hostname.vendor_token_map["HU"]).toBe("Huawei");
+    expect(loaded.hostname.vendor_token_map["ZT"]).toBe("ZTE");
   });
 
   it("fails fast on malformed hierarchy.yaml", () => {
