@@ -1,4 +1,4 @@
-# S1 tracer bullet: plain HTTP on :80. TLS modes land in slice #11.
+# Plain HTTP mode. Used by CI smoke tests and local dev where no cert is available.
 {
     admin off
     auto_https off

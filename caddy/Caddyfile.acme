@@ -1,0 +1,17 @@
+# Public mode: Let's Encrypt via HTTP-01. Port 80 must be reachable from
+# the public internet for the challenge, and port 443 must be open for
+# normal traffic. Caddy handles renewal automatically.
+{
+    admin off
+    email {$CADDY_ACME_EMAIL}
+}
+
+{$CADDY_DOMAIN} {
+    encode zstd gzip
+    import /etc/caddy/snippets/security-headers.caddy
+
+    reverse_proxy web:3000 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+}

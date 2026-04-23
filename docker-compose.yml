@@ -107,15 +107,21 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+    environment:
+      CADDY_TLS_MODE: ${CADDY_TLS_MODE:-http}
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-localhost}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:-}
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy:/etc/caddy:ro
       - caddy-data:/data
       - caddy-config:/config
+    entrypoint: ["/etc/caddy/entrypoint.sh"]
     depends_on:
       web:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --no-check-certificate --spider http://localhost/api/health || wget --quiet --tries=1 --no-check-certificate --spider https://localhost/api/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10

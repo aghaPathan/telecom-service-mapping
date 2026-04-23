@@ -14,14 +14,15 @@
 4. [Architecture](#architecture)
 5. [Data model](#data-model)
 6. [Quick start (local dev)](#quick-start-local-dev)
-7. [Configuration](#configuration)
-8. [Operations](#operations)
-9. [Development](#development)
-10. [Testing](#testing)
-11. [Security & data sensitivity](#security--data-sensitivity)
-12. [Roadmap](#roadmap)
-13. [Project layout](#project-layout)
-14. [Contributing](#contributing)
+7. [Deployment](#deployment)
+8. [Configuration](#configuration)
+9. [Operations](#operations)
+10. [Development](#development)
+11. [Testing](#testing)
+12. [Security & data sensitivity](#security--data-sensitivity)
+13. [Roadmap](#roadmap)
+14. [Project layout](#project-layout)
+15. [Contributing](#contributing)
 
 ---
 
@@ -228,6 +229,102 @@ Visit `https://localhost` (or your configured host). Log in with the admin you s
 
 ---
 
+## Deployment
+
+Caddy terminates TLS for the stack. Which certificate source it uses is
+selected by `CADDY_TLS_MODE` in `.env`; the entrypoint picks the matching
+Caddyfile at container start.
+
+### 1. Pick a TLS mode
+
+| Mode | `CADDY_TLS_MODE` | Network assumption | Cert source |
+|------|------------------|--------------------|-------------|
+| HTTP (dev/CI) | `http` | Loopback only | None |
+| Internal CA (LAN) | `internal` | Private LAN | Caddy-generated root CA |
+| Tailscale HTTPS | `tailscale` | Tailnet | Tailscale daemon |
+| ACME / Let's Encrypt | `acme` | Public internet | Let's Encrypt |
+
+### 2. Mode — internal CA (LAN)
+
+- Set `CADDY_TLS_MODE=internal`, `CADDY_DOMAIN=ts-mapping.lan`,
+  `NEXTAUTH_URL=https://ts-mapping.lan`.
+- After first `docker compose up`, copy the root CA out of the container:
+
+  ```bash
+  docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
+  ```
+
+- Install `caddy-root.crt` into each client's trust store (macOS Keychain,
+  Firefox's own store, Windows cert manager, iOS profile, etc.) so browsers
+  trust the LAN cert without warnings.
+
+### 3. Mode — Tailscale HTTPS
+
+- Requires the Tailscale daemon running on the Docker host, MagicDNS
+  enabled on the tailnet, and the HTTPS feature enabled in the Tailscale
+  admin console.
+- Set `CADDY_TLS_MODE=tailscale`,
+  `CADDY_DOMAIN=<host>.<tailnet>.ts.net`, and `NEXTAUTH_URL` to match.
+- Caddy's `get_certificate tailscale` directive talks to the local
+  `tailscaled` socket to fetch and renew the cert. See the
+  [Tailscale HTTPS docs](https://tailscale.com/kb/1153/enabling-https)
+  for enabling HTTPS on a node.
+
+### 4. Mode — ACME / Let's Encrypt (default)
+
+- Requires: a public DNS A/AAAA record pointing at the Docker host,
+  ports 80 and 443 open to the internet, and a contact email for
+  renewal-expiry warnings.
+- Set `CADDY_TLS_MODE=acme`, `CADDY_DOMAIN=ts-mapping.example.com`,
+  `CADDY_ACME_EMAIL=ops@example.com`, and
+  `NEXTAUTH_URL=https://ts-mapping.example.com`.
+- First `docker compose up` triggers the HTTP-01 challenge. Watch it
+  land:
+
+  ```bash
+  docker compose logs -f caddy
+  ```
+
+  until you see `certificate obtained successfully`.
+- Rate limits: Let's Encrypt allows 50 certificates per registered
+  domain per week. Don't rebuild the `caddy-data` volume casually.
+
+### 5. Cert rotation
+
+All three TLS modes auto-renew. To force a fresh issuance (e.g. after
+rotating a compromised key), stop the stack, remove the Caddy data
+volume, and restart:
+
+```bash
+docker compose down
+docker volume rm telecom-service-mapping_caddy-data
+docker compose up -d --wait
+```
+
+### 6. Tailscale auth rotation
+
+Reissue the host's Tailscale auth key from the Tailscale admin console
+and restart the host's `tailscaled`. Caddy picks up the new cert
+automatically on its next renewal tick — no container restart required.
+
+### 7. Second-host smoke test (manual)
+
+From a separate LAN / tailnet / public host, hit the health endpoint:
+
+```bash
+curl -I https://${CADDY_DOMAIN}/api/health
+```
+
+Expect `HTTP/2 200` plus a `strict-transport-security` response header.
+If the HSTS header is missing, the stack is probably still on `http`
+mode — verify with:
+
+```bash
+docker compose exec caddy env | grep CADDY_TLS_MODE
+```
+
+---
+
 ## Configuration
 
 ### Environment variables (`.env`)
@@ -241,8 +338,9 @@ Visit `https://localhost` (or your configured host). Log in with the admin you s
 | `NEXTAUTH_SECRET` | web | Auth.js signing secret |
 | `NEXTAUTH_URL` | web | Public base URL, e.g. `https://ts-mapping.local` |
 | `INGEST_CRON` | ingestor | Cron expression (default `0 2 * * *`) |
-| `CADDY_TLS_MODE` | caddy | `internal` \| `tailscale` \| `acme` |
+| `CADDY_TLS_MODE` | caddy | `http` \| `internal` \| `tailscale` \| `acme` (see [Deployment](#deployment)) |
 | `CADDY_DOMAIN` | caddy | Hostname Caddy should serve |
+| `CADDY_ACME_EMAIL` | caddy | Contact email for Let's Encrypt (required in `acme` mode) |
 
 See `.env.example` for the full list with placeholder values.
 

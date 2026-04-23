@@ -1,0 +1,17 @@
+# LAN mode: Caddy's internal CA issues a cert for $CADDY_DOMAIN.
+# Operator installs the Caddy root CA on each client (README step).
+{
+    admin off
+}
+
+{$CADDY_DOMAIN} {
+    tls internal
+
+    encode zstd gzip
+    import /etc/caddy/snippets/security-headers.caddy
+
+    reverse_proxy web:3000 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+}
