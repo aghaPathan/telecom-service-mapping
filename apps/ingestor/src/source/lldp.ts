@@ -37,7 +37,7 @@ export async function readActiveLldpRows(sourceUrl: string): Promise<RawLldpRow[
          domain_b,
          type_a,
          type_b,
-         updated_at
+         COALESCE(updated_at, NOW()) AS updated_at
        FROM app_lldp
        WHERE status = true`,
     );
