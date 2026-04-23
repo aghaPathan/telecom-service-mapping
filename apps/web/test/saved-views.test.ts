@@ -54,6 +54,24 @@ describe("ViewPayload discriminated union", () => {
       ViewPayload.parse({ kind: "path", query: { kind: "device", value: "" } }),
     ).toThrow();
   });
+
+  it("rejects extra fields smuggled into a downstream query", () => {
+    expect(() =>
+      ViewPayload.parse({
+        kind: "downstream",
+        query: { device: "X", max_depth: 5, include_transport: true, foo: "bar" },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects extra fields smuggled into a path query", () => {
+    expect(() =>
+      ViewPayload.parse({
+        kind: "path",
+        query: { kind: "device", value: "X", foo: "bar" },
+      }),
+    ).toThrow();
+  });
 });
 
 describe("Visibility enum", () => {

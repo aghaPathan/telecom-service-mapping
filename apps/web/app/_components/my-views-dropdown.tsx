@@ -25,19 +25,27 @@ export function MyViewsDropdown({ currentUserId }: { currentUserId: string }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<State>({ kind: "idle" });
 
+  // Refetch on every open so a newly-saved view is visible immediately and an
+  // earlier transient failure doesn't latch the panel into the error state.
   useEffect(() => {
-    if (!open || state.kind !== "idle") return;
+    if (!open) return;
+    let cancelled = false;
     setState({ kind: "loading" });
     fetch("/api/views", { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) throw new Error(String(r.status));
         return r.json();
       })
-      .then((body: { views: SavedViewDTO[] }) =>
-        setState({ kind: "ok", views: body.views }),
-      )
-      .catch(() => setState({ kind: "error" }));
-  }, [open, state.kind]);
+      .then((body: { views: SavedViewDTO[] }) => {
+        if (!cancelled) setState({ kind: "ok", views: body.views });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ kind: "error" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   return (
     <div className="relative">

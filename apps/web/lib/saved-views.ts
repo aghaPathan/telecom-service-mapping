@@ -30,7 +30,7 @@ const PathPayload = z
   .strict();
 
 const DownstreamPayload = z
-  .object({ kind: z.literal("downstream"), query: DownstreamQuery })
+  .object({ kind: z.literal("downstream"), query: DownstreamQuery.strict() })
   .strict();
 
 export const ViewPayload = z.discriminatedUnion("kind", [

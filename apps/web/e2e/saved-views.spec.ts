@@ -219,4 +219,25 @@ test.describe.serial("saved-views (#12) — share-with-role round trip", () => {
       .allInnerTexts();
     expect(options).toEqual(["private"]);
   });
+
+  test("viewer can save a private view and see it in My views", async ({
+    page,
+  }) => {
+    await loginViaForm(page, VW.email, VW.password);
+    await page.waitForURL((u) => !u.pathname.startsWith("/login"));
+
+    await page.goto(`/device/${CSG}`);
+    await expect(page.getByTestId("path-view")).toBeVisible();
+
+    await page.getByTestId("save-view-toggle").click();
+    await page.getByTestId("save-view-name").fill("E2E viewer private");
+    await page.getByTestId("save-view-submit").click();
+    await expect(page.getByTestId("save-view-ok")).toBeVisible();
+
+    await page.getByTestId("my-views-toggle").click();
+    const item = page
+      .getByTestId("my-views-item")
+      .filter({ hasText: "E2E viewer private" });
+    await expect(item).toBeVisible();
+  });
 });
