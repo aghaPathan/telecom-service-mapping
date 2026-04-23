@@ -6,7 +6,7 @@
 (:Device {name, vendor, domain, site, role, level, ip, mac})
   // + secondary label per role. Note: the role string from config/hierarchy.yaml is
   // applied verbatim as a label, which means labels are UPPERCASE (:CORE, :IRR,
-  // :VRR, :UPE, :CSG, :MW, :SW, :Ran, :PTP, :PMP, :Customer, :Unknown) — NOT :Core.
+  // :VRR, :UPE, :CSG, :MW, :SW, :RAN, :PTP, :PMP, :Customer, :Unknown) — NOT :Core.
   // Filter by `level` property, never by `:Core`.
 (:Site    {name, category, url})
 (:Service {cid, mobily_cid, bandwidth, protection_type, region})
@@ -35,11 +35,11 @@
 | 2 | Aggregation | UPE |
 | 3 | CustomerAggregation | CSG, GPON, SW |
 | 3.5 | Transport | MW |
-| 4 | Access | Ran, PTP, PMP |
+| 4 | Access | RAN, PTP, PMP |
 | 5 | Customer | Customer |
 | 99 | (unknown) | Unknown |
 
-SW is re-leveled post-ingest based on topology (→Core = L2, →Ran/Customer = L4, else L3).
+SW is re-leveled post-ingest based on topology (→CORE = L2, →RAN/Customer = L4, else L3).
 
 ## Common resolver patterns (already implemented — reuse)
 

@@ -33,13 +33,20 @@ const HierarchySchema = z.object({
     .default({ enabled: true }),
 });
 
+const NameTokenSchema = z.object({
+  index: z.number().int().nonnegative(),
+  separator: z.string().min(1),
+  map: z.record(z.string(), z.string().min(1)).default({}),
+});
+
 const RoleCodesSchema = z.object({
   type_map: z.record(z.string(), z.string().min(1)),
   name_prefix_map: z.record(z.string(), z.string().min(1)).default({}),
+  name_token: NameTokenSchema.optional(),
   fallback: z.string().min(1).default("Unknown"),
   resolver_priority: z
-    .array(z.enum(["type_column", "name_prefix", "fallback"]))
-    .default(["type_column", "name_prefix", "fallback"]),
+    .array(z.enum(["type_column", "name_prefix", "name_token", "fallback"]))
+    .default(["type_column", "name_token", "fallback"]),
 });
 
 export type HierarchyConfig = z.infer<typeof HierarchySchema>;
@@ -65,6 +72,13 @@ export type DeviceRoleInput = {
 export type ResolvedRole = {
   role: string;
   level: number;
+  /**
+   * When non-null, the name-token lookup was attempted and failed to match —
+   * the returned token is the raw string taken from `input.name`. Useful for
+   * post-run diagnostics (top-N unresolved tokens). Null when name_token did
+   * not run (earlier step resolved, or step disabled).
+   */
+  unresolved_name_token?: string | null;
 };
 
 export function buildResolverConfig(
@@ -98,6 +112,7 @@ export function resolveRole(
   input: DeviceRoleInput,
   cfg: ResolverConfig,
 ): ResolvedRole {
+  let unresolvedToken: string | null = null;
   for (const step of cfg.roles.resolver_priority) {
     if (step === "type_column") {
       const code = input.type_code?.trim();
@@ -109,18 +124,34 @@ export function resolveRole(
       for (const { prefix, role } of cfg.prefixes) {
         if (input.name.startsWith(prefix)) return finalize(role, cfg);
       }
+    } else if (step === "name_token") {
+      const nt = cfg.roles.name_token;
+      if (nt) {
+        const token = input.name.split(nt.separator)[nt.index];
+        if (token !== undefined && token.length > 0) {
+          const mapped = nt.map[token];
+          if (mapped) return finalize(mapped, cfg);
+          unresolvedToken = token;
+        }
+      }
     } else if (step === "fallback") {
-      return {
-        role: cfg.hierarchy.unknown_label,
-        level: cfg.hierarchy.unknown_level,
-      };
+      return unknown(cfg, unresolvedToken);
     }
   }
   // Priority list didn't include "fallback" — still guarantee a result.
-  return {
+  return unknown(cfg, unresolvedToken);
+}
+
+function unknown(
+  cfg: ResolverConfig,
+  unresolvedToken: string | null,
+): ResolvedRole {
+  const result: ResolvedRole = {
     role: cfg.hierarchy.unknown_label,
     level: cfg.hierarchy.unknown_level,
   };
+  if (unresolvedToken !== null) result.unresolved_name_token = unresolvedToken;
+  return result;
 }
 
 function finalize(role: string, cfg: ResolverConfig): ResolvedRole {

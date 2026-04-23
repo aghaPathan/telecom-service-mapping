@@ -63,8 +63,8 @@ const symmetricPair = (i: number): FixtureRow[] => {
       vendor_b: "Cisco",
       domain_a: "core",
       domain_b: "agg",
-      type_a: "ICOR",
-      type_b: "IUPE",
+      type_a: "CORE",
+      type_b: "UPE",
       updated_at: base,
     },
     {
@@ -81,8 +81,8 @@ const symmetricPair = (i: number): FixtureRow[] => {
       vendor_b: "Juniper",
       domain_a: "agg",
       domain_b: "core",
-      type_a: "IUPE",
-      type_b: "ICOR",
+      type_a: "UPE",
+      type_b: "CORE",
       updated_at: base,
     },
   ];
@@ -102,7 +102,7 @@ const oneDirectionPair = (i: number): FixtureRow => ({
   vendor_b: "Huawei",
   domain_a: "access",
   domain_b: "access",
-  type_a: "ICSG",
+  type_a: "CSG",
   type_b: null,
   updated_at: T(`2026-04-20T11:00:${String(i).padStart(2, "0")}Z`),
 });
@@ -224,8 +224,8 @@ const unicodeRow = (a: string, b: string, suffix: string): FixtureRow => ({
   vendor_b: "Nokia",
   domain_a: "core",
   domain_b: "core",
-  type_a: "ICOR",
-  type_b: "ICOR",
+  type_a: "CORE",
+  type_b: "CORE",
   updated_at: T("2026-04-20T14:00:00Z"),
 });
 
@@ -246,8 +246,8 @@ const mixedCasePair: FixtureRow[] = [
     vendor_b: "Juniper",
     domain_a: "core",
     domain_b: "core",
-    type_a: "ICOR",
-    type_b: "ICOR",
+    type_a: "CORE",
+    type_b: "CORE",
     updated_at: T("2026-04-20T15:00:00Z"),
   },
   {
@@ -264,8 +264,8 @@ const mixedCasePair: FixtureRow[] = [
     vendor_b: "Juniper",
     domain_a: "core",
     domain_b: "core",
-    type_a: "ICOR",
-    type_b: "ICOR",
+    type_a: "CORE",
+    type_b: "CORE",
     updated_at: T("2026-04-20T15:00:05Z"),
   },
 ];

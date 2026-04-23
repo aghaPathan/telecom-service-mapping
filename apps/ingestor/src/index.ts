@@ -186,15 +186,32 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
         ?? config.RESOLVER_CONFIG_DIR
         ?? defaultConfigDir(),
     );
+    const unresolvedTokens = new Map<string, number>();
+    let unresolvedCount = 0;
     for (const d of dedup.devices) {
-      const { role, level } = resolveRole(
+      const resolved = resolveRole(
         { name: d.name, type_code: d.type_code },
         resolverCfg,
       );
-      d.role = role;
-      d.level = level;
+      d.role = resolved.role;
+      d.level = resolved.level;
+      if (resolved.level === resolverCfg.hierarchy.unknown_level) {
+        unresolvedCount += 1;
+        const token = resolved.unresolved_name_token;
+        if (token) {
+          unresolvedTokens.set(token, (unresolvedTokens.get(token) ?? 0) + 1);
+        }
+      }
     }
-    log("info", "roles_resolved", { devices: dedup.devices.length });
+    const topUnresolved = [...unresolvedTokens.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([token, count]) => ({ token, count }));
+    log("info", "roles_resolved", {
+      devices: dedup.devices.length,
+      unresolved: unresolvedCount,
+      top_unresolved_tokens: topUnresolved,
+    });
 
     const sites: SitePortalRow[] = rawSites.map((s) => ({
       name: s.site_name,
