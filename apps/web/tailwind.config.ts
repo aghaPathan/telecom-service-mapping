@@ -10,8 +10,11 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
+        // System-font stack — no runtime request to fonts.googleapis.com.
+        // The project handles real operator data per CLAUDE.md; self-hosting
+        // fonts or using platform fonts avoids leaking request metadata and
+        // supports offline / air-gapped deployments.
         sans: [
-          "'Geist'",
           "ui-sans-serif",
           "system-ui",
           "-apple-system",
@@ -20,7 +23,6 @@ const config: Config = {
           "sans-serif",
         ],
         mono: [
-          "'JetBrains Mono'",
           "ui-monospace",
           "SFMono-Regular",
           "Menlo",

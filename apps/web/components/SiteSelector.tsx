@@ -54,6 +54,7 @@ export function SiteSelector({
   const [active, setActive] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const optionRefs = useRef<Array<HTMLLIElement | null>>([]);
 
   // Keep input in sync when `value` prop changes externally.
   useEffect(() => {
@@ -63,8 +64,18 @@ export function SiteSelector({
   const filtered = useMemo(() => filterSites(sites, query, value), [sites, query, value]);
 
   useEffect(() => {
-    if (active >= filtered.length) setActive(0);
+    // Clamp on both sides: filter can grow OR shrink (including to 0), and
+    // Math.min(filtered.length - 1, …) can produce -1 when filtered is empty.
+    if (active < 0 || active >= filtered.length) setActive(0);
   }, [filtered.length, active]);
+
+  // Keep the highlighted row visible inside the scrolling listbox. The list
+  // is `max-h-60 overflow-auto`; without this the active row can scroll out
+  // of view on long paths, violating WCAG 2.4.7 (focus visible).
+  useEffect(() => {
+    if (!open) return;
+    optionRefs.current[active]?.scrollIntoView({ block: "nearest" });
+  }, [active, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -95,7 +106,7 @@ export function SiteSelector({
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setOpen(true);
-      setActive((i) => Math.min(filtered.length - 1, i + 1));
+      setActive((i) => Math.max(0, Math.min(filtered.length - 1, i + 1)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setOpen(true);
@@ -189,6 +200,9 @@ export function SiteSelector({
               <li
                 key={site}
                 id={`${listId}-opt-${i}`}
+                ref={(el) => {
+                  optionRefs.current[i] = el;
+                }}
                 role="option"
                 aria-selected={isSelected}
                 onMouseDown={(e) => {

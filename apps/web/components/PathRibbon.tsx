@@ -31,7 +31,6 @@ export function PathRibbon({
     return (
       <div
         className={`rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400 ${className}`.trim()}
-        role="status"
       >
         No hops to display.
       </div>
@@ -78,7 +77,7 @@ export function PathRibbon({
                 {linkHops ? (
                   <Link
                     href={`/device/${encodeURIComponent(hop.hostname)}`}
-                    className="block min-w-0 max-w-full outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    className="block min-w-0 max-w-full outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:focus-visible:ring-indigo-400"
                     aria-label={`Open device ${hop.hostname}`}
                   >
                     {name}

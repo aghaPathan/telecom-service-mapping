@@ -90,8 +90,8 @@ export default function DesignPreviewPage() {
 
       <Section title="LevelBadge" caption="Hierarchy · 7 tiers">
         <div className="flex flex-wrap items-center gap-2">
-          {LEVELS.map((lvl, i) => (
-            <LevelBadge key={i} level={lvl} showNumber />
+          {LEVELS.map((lvl) => (
+            <LevelBadge key={lvl ?? "unknown"} level={lvl} showNumber />
           ))}
         </div>
       </Section>
