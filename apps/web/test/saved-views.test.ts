@@ -8,7 +8,7 @@ import {
 
 const PATH_PAYLOAD = {
   kind: "path" as const,
-  query: { from: "device:PK-KHI-UPE-01" },
+  query: { kind: "device" as const, value: "PK-KHI-UPE-01" },
 };
 
 const DOWNSTREAM_PAYLOAD = {
@@ -17,7 +17,7 @@ const DOWNSTREAM_PAYLOAD = {
 };
 
 describe("ViewPayload discriminated union", () => {
-  it("accepts a path payload and normalizes the inner query", () => {
+  it("accepts a path payload with kind/value query", () => {
     const p = ViewPayload.parse(PATH_PAYLOAD);
     expect(p.kind).toBe("path");
     if (p.kind !== "path") throw new Error("narrowing");
@@ -51,7 +51,25 @@ describe("ViewPayload discriminated union", () => {
 
   it("rejects empty query value", () => {
     expect(() =>
-      ViewPayload.parse({ kind: "path", query: { from: "device:" } }),
+      ViewPayload.parse({ kind: "path", query: { kind: "device", value: "" } }),
+    ).toThrow();
+  });
+
+  it("rejects extra fields smuggled into a downstream query", () => {
+    expect(() =>
+      ViewPayload.parse({
+        kind: "downstream",
+        query: { device: "X", max_depth: 5, include_transport: true, foo: "bar" },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects extra fields smuggled into a path query", () => {
+    expect(() =>
+      ViewPayload.parse({
+        kind: "path",
+        query: { kind: "device", value: "X", foo: "bar" },
+      }),
     ).toThrow();
   });
 });

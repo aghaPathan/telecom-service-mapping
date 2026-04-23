@@ -7,6 +7,7 @@ import {
 } from "@/lib/downstream";
 import type { DeviceRef } from "@/lib/path";
 import { RoleBadge } from "@/app/_components/role-badge";
+import { SaveViewButton } from "@/app/_components/save-view-button";
 import { DownstreamListFilter } from "@/app/device/[name]/downstream/_filter";
 import { log } from "@/lib/logger";
 
@@ -44,7 +45,7 @@ export default async function DownstreamPage({
   params: { name: string };
   searchParams: { [k: string]: string | undefined };
 }) {
-  await requireRole("viewer");
+  const session = await requireRole("viewer");
   const name = decodeURIComponent(params.name);
 
   let parsed;
@@ -98,6 +99,15 @@ export default async function DownstreamPage({
         includeTransport={parsed.include_transport}
         maxDepth={parsed.max_depth}
       />
+
+      {result.status === "ok" && (
+        <div className="mt-2 flex justify-end">
+          <SaveViewButton
+            role={session.user.role}
+            payload={{ kind: "downstream", query: parsed }}
+          />
+        </div>
+      )}
 
       {result.status === "start_not_found" ? (
         <div className="mt-8">

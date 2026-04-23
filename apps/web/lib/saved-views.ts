@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { PathQuery } from "@/lib/path";
 import { DownstreamQuery } from "@/lib/downstream";
 
 export const Visibility = z.enum([
@@ -10,17 +9,28 @@ export const Visibility = z.enum([
 ]);
 export type Visibility = z.infer<typeof Visibility>;
 
-// The persisted payload is a discriminated union on `kind`. The inner `query`
-// reuses the canonical schemas from `lib/path.ts` and `lib/downstream.ts` so
-// saved views stay in lockstep with the live endpoints they replay against.
-// Strict objects prevent clients from smuggling extra fields into the JSONB
-// column, which would otherwise survive PATCH round-trips unnoticed.
+// The persisted path query mirrors the *output* shape of `PathQuery` in
+// `lib/path.ts` — `{kind, value}` — which is what `runPath` consumes. We
+// can't reuse the PathQuery zod schema directly because its input is
+// `{from: "device:<name>"}`, not the destructured form stored here.
+const SavedPathQuery = z
+  .object({
+    kind: z.enum(["device", "service"]),
+    value: z.string().trim().min(1).max(200),
+  })
+  .strict();
+
+// The persisted payload is a discriminated union on `kind`. The downstream
+// inner query reuses the canonical schema because its input == output; path
+// uses the dedicated `SavedPathQuery` for the reason above. Strict objects
+// prevent clients from smuggling extra fields into the JSONB column, which
+// would otherwise survive PATCH round-trips unnoticed.
 const PathPayload = z
-  .object({ kind: z.literal("path"), query: PathQuery })
+  .object({ kind: z.literal("path"), query: SavedPathQuery })
   .strict();
 
 const DownstreamPayload = z
-  .object({ kind: z.literal("downstream"), query: DownstreamQuery })
+  .object({ kind: z.literal("downstream"), query: DownstreamQuery.strict() })
   .strict();
 
 export const ViewPayload = z.discriminatedUnion("kind", [

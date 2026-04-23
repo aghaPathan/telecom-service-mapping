@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { getSession } from "@/lib/session";
 import { FreshnessBadge } from "./_components/freshness-badge";
 import { LogoutButton } from "./_components/logout-button";
+import { MyViewsDropdown } from "./_components/my-views-dropdown";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -40,6 +41,7 @@ export default async function RootLayout({
                       ({session.user.role})
                     </span>
                   </span>
+                  <MyViewsDropdown currentUserId={session.user.id} />
                   <LogoutButton />
                 </>
               ) : null}

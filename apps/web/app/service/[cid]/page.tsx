@@ -1,6 +1,7 @@
 import { requireRole } from "@/lib/rbac";
 import { runPath, type PathResponse } from "@/lib/path";
 import { PathView } from "@/app/_components/path-view";
+import { SaveViewButton } from "@/app/_components/save-view-button";
 import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,7 @@ export default async function ServicePage({
 }: {
   params: { cid: string };
 }) {
-  await requireRole("viewer");
+  const session = await requireRole("viewer");
   const cid = decodeURIComponent(params.cid);
 
   // Same-process direct call — no HTTP round-trip, no auth cookie needed.
@@ -27,12 +28,18 @@ export default async function ServicePage({
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
-      <h1
-        className="text-2xl font-semibold tracking-tight"
-        data-testid="service-page-cid"
-      >
-        {cid}
-      </h1>
+      <div className="flex items-center justify-between gap-4">
+        <h1
+          className="text-2xl font-semibold tracking-tight"
+          data-testid="service-page-cid"
+        >
+          {cid}
+        </h1>
+        <SaveViewButton
+          role={session.user.role}
+          payload={{ kind: "path", query: { kind: "service", value: cid } }}
+        />
+      </div>
       <div className="mt-6">
         {result ? (
           <PathView data={result} />

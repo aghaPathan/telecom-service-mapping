@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireRole } from "@/lib/rbac";
 import { runPath, type PathResponse } from "@/lib/path";
 import { PathView } from "@/app/_components/path-view";
+import { SaveViewButton } from "@/app/_components/save-view-button";
 import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,7 @@ export default async function DevicePage({
 }: {
   params: { name: string };
 }) {
-  await requireRole("viewer");
+  const session = await requireRole("viewer");
   const name = decodeURIComponent(params.name);
 
   // Same-process direct call — no HTTP round-trip, no auth cookie needed.
@@ -35,13 +36,19 @@ export default async function DevicePage({
         >
           {name}
         </h1>
-        <Link
-          href={`/device/${encodeURIComponent(name)}/downstream`}
-          data-testid="downstream-link"
-          className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm ring-1 ring-slate-100 hover:bg-slate-50"
-        >
-          View downstream →
-        </Link>
+        <div className="flex items-center gap-2">
+          <SaveViewButton
+            role={session.user.role}
+            payload={{ kind: "path", query: { kind: "device", value: name } }}
+          />
+          <Link
+            href={`/device/${encodeURIComponent(name)}/downstream`}
+            data-testid="downstream-link"
+            className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm ring-1 ring-slate-100 hover:bg-slate-50"
+          >
+            View downstream →
+          </Link>
+        </div>
       </div>
       <div className="mt-6">
         {result ? (
