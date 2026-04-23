@@ -3,6 +3,7 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
 import { iconFor } from "@/lib/icons";
+import { ClusterNode, type ClusterNodeData } from "./ClusterNode";
 
 export type DeviceNodeData = {
   name: string;
@@ -11,11 +12,7 @@ export type DeviceNodeData = {
   site?: string | null;
 };
 
-export type ClusterNodeData = {
-  site: string;
-  role: string;
-  count: number;
-};
+export type { ClusterNodeData };
 
 // Level-indexed ring color for the left border. Kept independent of the role
 // icon palette in lib/icons so the canvas stays legible against any theme.
@@ -61,29 +58,8 @@ function DeviceNodeImpl({ data }: NodeProps<DeviceNodeData>) {
   );
 }
 
-function ClusterNodeImpl({ data }: NodeProps<ClusterNodeData>) {
-  return (
-    <div
-      className="flex min-w-[160px] items-center gap-2 rounded-md border border-dashed border-slate-400 bg-slate-50 px-3 py-2 shadow-sm"
-      data-testid="graph-cluster-node"
-    >
-      <Handle type="target" position={Position.Left} className="!bg-slate-400" />
-      <span className="shrink-0">{iconFor(data.role)}</span>
-      <span className="flex min-w-0 flex-col">
-        <span className="truncate text-sm font-medium text-slate-800">
-          {data.site} · {data.role}
-        </span>
-        <span className="truncate text-xs text-slate-500">
-          {data.count} devices
-        </span>
-      </span>
-      <Handle type="source" position={Position.Right} className="!bg-slate-400" />
-    </div>
-  );
-}
-
 export const DeviceNode = memo(DeviceNodeImpl);
-export const ClusterNode = memo(ClusterNodeImpl);
+export { ClusterNode };
 
 // reactflow keys node renderers by string id — bundled into one object so
 // callers can pass `nodeTypes={NODE_TYPES}` without reshaping on every render.
