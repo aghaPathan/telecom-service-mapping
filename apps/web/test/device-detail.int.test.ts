@@ -144,18 +144,23 @@ describe("device-detail lib against live Neo4j", () => {
     expect(r.rows.map((n) => n.name)).toEqual(["UPE-1", "RAN-1", "RAN-2"]);
   });
 
-  it("loadNeighbors ICSG-2 page 0 returns first 50", async () => {
+  it("loadNeighbors ICSG-2 page 0 returns first 50 (boundaries NB-001..NB-050)", async () => {
     const { loadNeighbors } = await import("@/lib/device-detail");
     const r = await loadNeighbors("ICSG-2", { page: 0, size: 50, sortBy: "role" });
     expect(r.total).toBe(60);
     expect(r.rows).toHaveLength(50);
+    // Tiebreaker by n.name ASC catches off-by-one in SKIP.
+    expect(r.rows[0]!.name).toBe("NB-001");
+    expect(r.rows[49]!.name).toBe("NB-050");
   });
 
-  it("loadNeighbors ICSG-2 page 1 returns remaining 10", async () => {
+  it("loadNeighbors ICSG-2 page 1 returns remaining 10 (NB-051..NB-060)", async () => {
     const { loadNeighbors } = await import("@/lib/device-detail");
     const r = await loadNeighbors("ICSG-2", { page: 1, size: 50, sortBy: "role" });
     expect(r.total).toBe(60);
     expect(r.rows).toHaveLength(10);
+    expect(r.rows[0]!.name).toBe("NB-051");
+    expect(r.rows[9]!.name).toBe("NB-060");
   });
 
   it("loadNeighbors island returns empty", async () => {
@@ -174,5 +179,20 @@ describe("device-detail lib against live Neo4j", () => {
     const { loadCircuits } = await import("@/lib/device-detail");
     const r = await loadCircuits("NO-SUCH-DEVICE");
     expect(r).toEqual([]);
+  });
+
+  it("rejects invalid inputs via zod", async () => {
+    const { loadDevice, loadNeighbors } = await import("@/lib/device-detail");
+    await expect(loadDevice("")).rejects.toThrow();
+    await expect(loadDevice("x".repeat(201))).rejects.toThrow();
+    await expect(
+      loadNeighbors("ICSG-1", { page: -1, size: 50, sortBy: "role" }),
+    ).rejects.toThrow();
+    await expect(
+      loadNeighbors("ICSG-1", { page: 0, size: 0, sortBy: "role" }),
+    ).rejects.toThrow();
+    await expect(
+      loadNeighbors("ICSG-1", { page: 0, size: 201, sortBy: "role" }),
+    ).rejects.toThrow();
   });
 });

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getDriver } from "@/lib/neo4j";
+import { toNum, toStrOrNull } from "@/lib/neo4j-coerce";
 
 // ---------- Input schema ----------
 
@@ -95,17 +96,6 @@ export type PathResponse = z.infer<typeof PathResponse>;
 // the only option. Never make this configurable via env without validation.
 // 2× the deepest hierarchy level (5) with headroom for ring detours.
 const MAX_PATH_HOPS = 15;
-
-type Nr = { toNumber: () => number };
-function toNum(v: unknown): number {
-  if (typeof v === "number") return v;
-  if (v && typeof (v as Nr).toNumber === "function") return (v as Nr).toNumber();
-  return Number(v);
-}
-
-function toStrOrNull(v: unknown): string | null {
-  return v == null ? null : String(v);
-}
 
 type PathNode = {
   name: string;

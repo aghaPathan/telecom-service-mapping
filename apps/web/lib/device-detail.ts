@@ -1,6 +1,7 @@
 import neo4j from "neo4j-driver";
 import { z } from "zod";
 import { getDriver } from "@/lib/neo4j";
+import { toNum, toStrOrNull, toBoolOrNull } from "@/lib/neo4j-coerce";
 
 // ---------- Types ----------
 
@@ -41,24 +42,6 @@ const NeighborOptsSchema = z.object({
   sortBy: z.enum(["role", "level"]),
 });
 
-// ---------- Helpers (mirrors apps/web/lib/path.ts) ----------
-
-type Nr = { toNumber: () => number };
-function toNum(v: unknown): number {
-  if (typeof v === "number") return v;
-  if (v && typeof (v as Nr).toNumber === "function") return (v as Nr).toNumber();
-  return Number(v);
-}
-
-function toStrOrNull(v: unknown): string | null {
-  return v == null ? null : String(v);
-}
-
-function toBoolOrNull(v: unknown): boolean | null {
-  if (v == null) return null;
-  if (typeof v === "boolean") return v;
-  return Boolean(v);
-}
 
 // ---------- Exports ----------
 
