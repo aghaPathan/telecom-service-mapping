@@ -1,0 +1,11 @@
+# HSTS + CSP + baseline hardening. Imported by every HTTPS Caddyfile.
+# CSP is intentionally permissive for inline styles — Next.js ships many
+# inline <style> tags for CSS-in-JS. Tighten once a nonce pipeline lands.
+header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    Content-Security-Policy "default-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    X-Frame-Options "DENY"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "no-referrer"
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+}
