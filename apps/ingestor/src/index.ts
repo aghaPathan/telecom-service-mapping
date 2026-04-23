@@ -1,5 +1,12 @@
 import neo4j, { type Driver } from "neo4j-driver";
+import pg from "pg";
 import { migrate, getPool, closePool } from "@tsm/db";
+
+// pg is CJS; destructure Pool from the default export (same pattern as
+// packages/db/src/index.ts). Dynamic `await import("pg")` + named destructure
+// silently yields undefined because Node's ESM named-export synthesis for
+// this package does not expose `Pool`.
+const { Pool } = pg;
 import { log } from "./logger.js";
 import { loadConfig, type IngestorConfig } from "./config.js";
 import { readActiveLldpRows } from "./source/lldp.js";
@@ -303,7 +310,6 @@ function parseArgs(argv: readonly string[]): {
  */
 async function runScheduled(): Promise<void> {
   const config = loadConfig();
-  const { Pool } = await import("pg");
   const schedulerPool = new Pool({
     connectionString: config.DATABASE_URL,
     max: 1,
