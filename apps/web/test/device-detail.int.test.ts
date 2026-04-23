@@ -183,8 +183,12 @@ describe("device-detail lib against live Neo4j", () => {
 
   it("rejects invalid inputs via zod", async () => {
     const { loadDevice, loadNeighbors } = await import("@/lib/device-detail");
-    await expect(loadDevice("")).rejects.toThrow();
-    await expect(loadDevice("x".repeat(201))).rejects.toThrow();
+    // loadDevice uses safeParse — malformed names resolve to null so callers
+    // (page.tsx) can convert to 404 rather than surfacing a 500.
+    await expect(loadDevice("")).resolves.toBeNull();
+    await expect(loadDevice("x".repeat(201))).resolves.toBeNull();
+    // loadNeighbors still throws on invalid opts — those are typed caller
+    // inputs, not URL-shaped user input.
     await expect(
       loadNeighbors("ICSG-1", { page: -1, size: 50, sortBy: "role" }),
     ).rejects.toThrow();

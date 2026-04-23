@@ -46,7 +46,12 @@ const NeighborOptsSchema = z.object({
 // ---------- Exports ----------
 
 export async function loadDevice(name: string): Promise<DeviceDetail | null> {
-  const validName = NameSchema.parse(name);
+  // Malformed names (empty, >200 chars) resolve as "not found" rather than
+  // throwing — lets Next.js route handlers convert the null into a clean 404
+  // instead of surfacing an unhandled ZodError as a 500.
+  const parsed = NameSchema.safeParse(name);
+  if (!parsed.success) return null;
+  const validName = parsed.data;
   const driver = getDriver();
   const session = driver.session({ defaultAccessMode: "READ" });
   try {
