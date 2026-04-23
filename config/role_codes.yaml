@@ -1,34 +1,99 @@
 # Role-code mapping — loaded fresh at the start of every ingest run.
 # Edit this file and re-trigger ingest; no rebuild required.
 #
-# Resolution priority is applied per device, in order:
-#   1. `type_column`  — raw `type_a` / `type_b` value from app_lldp lookups
-#                        here in `type_map`
-#   2. `name_prefix`  — device name's leading chars matched against
+# Resolution priority is applied per device, in order (see `resolver_priority`):
+#   1. `type_column`  — raw `type_a` / `type_b` value from app_lldp looked up
+#                        in `type_map`
+#   2. `name_token`   — split hostname on `separator`, look up token at `index`
+#                        in `name_token.map`
+#   3. `name_prefix`  — (legacy) device name's leading chars matched against
 #                        `name_prefix_map` (longest prefix wins)
-#   3. `fallback`     — value below, tagged with `unknown_label` from
+#   4. `fallback`     — value below, tagged with `unknown_label` from
 #                        hierarchy.yaml
-#
-# MVP seeds only the six codes confirmed from the source dataset. Unknown
-# codes (WLEF, ELEF, EACC, EDU, EDST, ESLR, SPT, SHC, HOS, blank type_*) fall
-# to the Unknown bucket and are curated over time.
 
+# Canonical type codes seen in live `app_lldp.type_a` / `type_b`. Mostly
+# identity mappings; two curations:
+#   - `Ran` → `RAN` (canonicalize case)
+#   - `Business Customer` → `Customer` (align with hierarchy.yaml level 5)
 type_map:
-  ICOR: CORE
-  IUPE: UPE
-  ICSG: CSG
-  GOLT: GPON
-  IIRR: IRR
-  IVRR: VRR
+  CORE: CORE
+  IRR: IRR
+  VRR: VRR
+  UPE: UPE
+  CSG: CSG
+  SW: SW
+  GPON: GPON
+  MW: MW
+  PTP: PTP
+  PMP: PMP
+  Ran: RAN
+  "Business Customer": Customer
 
-# Name-prefix fallback. Left empty at MVP — add entries like `XX-CORE-: CORE`
-# only when confirmed by ops. Longest prefix wins to avoid "CORE" eating
-# "CORE-AGG".
+# Name-token fallback. 37.5% of `type_a` rows arrive as empty string; resolve
+# from the hostname's hyphen-token at `index`. Map covers the empirical
+# top-tokens from the live dataset (ICOR/IUPE/ICSG/IASW/GOLT/IIRR/IVRR/MMW*/
+# R{2..5}G*/PTP/PMP/etc.). Unmapped tokens fall to `fallback`; the ingestor
+# logs the top-20 unresolved tokens per run so this list can be curated.
+name_token:
+  index: 1
+  separator: "-"
+  map:
+    # Core / aggregation / customer-agg
+    ICOR: CORE
+    ECOR: CORE
+    IIRR: IRR
+    IVRR: VRR
+    IUPE: UPE
+    ICSG: CSG
+    IASW: SW
+    GOLT: GPON
+    # Microwave transport (MMWN/MMWE/MMWF/MMWM/MMWR/MMWV)
+    MMWN: MW
+    MMWE: MW
+    MMWF: MW
+    MMWM: MW
+    MMWR: MW
+    MMWV: MW
+    # Radio access (R{2..5}G{N,F,T,2,3})
+    R2GN: RAN
+    R2GF: RAN
+    R2GT: RAN
+    R3GN: RAN
+    R3GF: RAN
+    R3GT: RAN
+    R4GN: RAN
+    R4GF: RAN
+    R4GT: RAN
+    R4G2: RAN
+    R4G3: RAN
+    R5GN: RAN
+    R5GF: RAN
+    R5GT: RAN
+    # Additional RAN / transport variants observed in live data
+    RIPR: RAN
+    RALL: RAN
+    RGUX: RAN
+    RGUF: RAN
+    RGUL: RAN
+    RGFX: RAN
+    RGLX: RAN
+    RLNX: RAN
+    RTNX: RAN
+    RULN: RAN
+    RULX: RAN
+    RUFX: RAN
+    # Point-to-point / point-to-multipoint
+    PTP: PTP
+    PMP: PMP
+
+# Legacy prefix map — left in place so name_prefix_map-based configs keep
+# working. Empty by default; only add entries if you want the resolver to try
+# prefix-matching before or after name_token (list in `resolver_priority`).
 name_prefix_map: {}
 
 fallback: Unknown
 
 resolver_priority:
   - type_column
-  - name_prefix
+  - name_token
   - fallback

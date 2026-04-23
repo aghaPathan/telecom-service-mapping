@@ -365,7 +365,7 @@ export async function writeGraph(
            WITH sw, collect(n) AS nbrs
            WITH sw,
                 any(n IN nbrs WHERE n:CORE) AS toCore,
-                any(n IN nbrs WHERE n:Ran OR n:Customer) AS toAccess
+                any(n IN nbrs WHERE n:RAN OR n:Customer) AS toAccess
            SET sw.level = CASE
              WHEN toCore   THEN 2
              WHEN toAccess THEN 4

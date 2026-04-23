@@ -98,7 +98,7 @@ test.describe.serial("downstream (#10) — page, filter, CSV export", () => {
       await seedDevice(UPE, "UPE", 2);
       await seedDevice(CSG, "CSG", 3);
       await seedDevice(MW, "MW", 3.5);
-      await seedDevice(RAN, "Ran", 4);
+      await seedDevice(RAN, "RAN", 4);
       await seedDevice(CUST1, "Customer", 5);
       await seedDevice(CUST2, "Customer", 5);
 

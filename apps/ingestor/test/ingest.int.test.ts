@@ -481,7 +481,7 @@ describe("ingest integration (testcontainers)", () => {
       `levels:
   - { level: 1, label: Core, roles: [CORE] }
   - { level: 3, label: CustomerAggregation, roles: [SW] }
-  - { level: 4, label: Access, roles: [Ran, Customer] }
+  - { level: 4, label: Access, roles: [RAN, Customer] }
 unknown_label: Unknown
 unknown_level: 99
 sw_dynamic_leveling:
@@ -493,7 +493,7 @@ sw_dynamic_leveling:
       `type_map:
   TCOR: CORE
   TSWI: SW
-  TRAN: Ran
+  TRAN: RAN
   TCUS: Customer
 name_prefix_map: {}
 fallback: Unknown
@@ -502,7 +502,7 @@ resolver_priority: [type_column, name_prefix, fallback]
     );
 
     // Seed dedicated fixture rows: sw-core connects to a core; sw-acc connects
-    // to a Ran; sw-iso connects only to another SW. Full-refresh wipes prior.
+    // to a RAN; sw-iso connects only to another SW. Full-refresh wipes prior.
     const sc = new pg.Client({ connectionString: sourceUrl });
     await sc.connect();
     try {
@@ -551,7 +551,7 @@ resolver_priority: [type_column, name_prefix, fallback]
           return typeof lvl === "number" ? lvl : lvl.toNumber();
         };
         expect(await q("SW-CORE-BOUND")).toBe(2);     // connected to CORE
-        expect(await q("SW-ACCESS-BOUND")).toBe(4);   // connected to Ran
+        expect(await q("SW-ACCESS-BOUND")).toBe(4);   // connected to RAN
         expect(await q("SW-ISOLATED")).toBe(3);       // only connected to SW → default
       } finally {
         await sess.close();

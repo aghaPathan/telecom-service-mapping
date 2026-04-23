@@ -20,7 +20,7 @@ levels:
     roles: [MW]
   - level: 4
     label: Access
-    roles: [Ran, PTP, PMP]
+    roles: [RAN, PTP, PMP]
   - level: 5
     label: Customer
     roles: [Customer]
@@ -31,8 +31,8 @@ unknown_label: Unknown
 unknown_level: 99
 
 # Post-ingest topology pass: re-level :SW nodes based on their neighbors.
-#   - SW connected to any :Core        → level 2
-#   - SW connected to any :Ran/:Customer → level 4
-#   - else                              → level 3 (default for CustomerAggregation)
+#   - SW connected to any :CORE          → level 2
+#   - SW connected to any :RAN/:Customer → level 4
+#   - else                                → level 3 (default for CustomerAggregation)
 sw_dynamic_leveling:
   enabled: true
