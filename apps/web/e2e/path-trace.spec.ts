@@ -177,7 +177,7 @@ test.describe.serial("path-trace (#9) — rendered hops on device/service pages"
     await loginViaForm(page, VIEWER.email, VIEWER.password);
     await page.waitForURL((u) => !u.pathname.startsWith("/login"));
 
-    await page.goto(`/device/${CUST}`);
+    await page.goto(`/path/${CUST}`);
     await expect(page.getByTestId("device-page-name")).toContainText(CUST);
 
     const hops = page.getByTestId("path-hop-name");
@@ -225,7 +225,7 @@ test.describe.serial("path-trace (#9) — rendered hops on device/service pages"
     await loginViaForm(page, VIEWER.email, VIEWER.password);
     await page.waitForURL((u) => !u.pathname.startsWith("/login"));
 
-    await page.goto(`/device/${ISLAND}`);
+    await page.goto(`/path/${ISLAND}`);
     await expect(page.getByTestId("device-page-name")).toContainText(ISLAND);
 
     const panel = page.getByTestId("path-no-path");
