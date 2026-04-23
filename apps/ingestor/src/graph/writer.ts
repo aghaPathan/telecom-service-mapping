@@ -2,6 +2,7 @@ import type { Driver } from "neo4j-driver";
 import { parseHostname } from "@tsm/db";
 import type { DeviceProps, LinkProps } from "../dedup.js";
 import type { ResolverConfig } from "../resolver.js";
+import type { SiteCoords } from "../sites-coords.js";
 import type {
   ServiceProps,
   TerminateEdge,
@@ -52,6 +53,9 @@ export type GraphWriteInput = {
   devices: readonly DeviceProps[];
   links: readonly LinkProps[];
   sites: readonly SitePortalRow[];
+  /** Site code → geographic metadata, loaded from config/sites.yaml.
+   * Applied in phase 5; sites with no entry keep lat/lng/region null. */
+  siteCoords?: SiteCoords;
   services: readonly ServiceProps[];
   terminates: readonly TerminateEdge[];
   protections: readonly ProtectedByEdge[];
@@ -253,7 +257,21 @@ export async function writeGraph(
       siteByName.set(site, { name: site, category: null, url: null });
     }
   }
-  const sites = [...siteByName.values()];
+  // Enrich each site with geographic metadata from sites.yaml when the site
+  // code matches. Sites without a YAML entry get null lat/lng/region —
+  // harmless for non-GIS consumers, surfaced as "not on map" by the /map page.
+  const coords = data.siteCoords;
+  const sites = [...siteByName.values()].map((s) => {
+    const c = coords?.get(s.name);
+    return {
+      name: s.name,
+      category: s.category,
+      url: s.url,
+      lat: c?.lat ?? null,
+      lng: c?.lng ?? null,
+      region: c?.region ?? null,
+    };
+  });
   for (const batch of chunk(sites, BATCH_SIZE)) {
     const session = driver.session();
     try {
@@ -262,7 +280,10 @@ export async function writeGraph(
           `UNWIND $batch AS s
              MERGE (x:Site {name: s.name})
              SET x.category = s.category,
-                 x.url      = s.url`,
+                 x.url      = s.url,
+                 x.lat      = s.lat,
+                 x.lng      = s.lng,
+                 x.region   = s.region`,
           { batch },
         ),
       );

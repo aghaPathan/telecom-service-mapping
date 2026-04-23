@@ -575,4 +575,88 @@ resolver_priority: [type_column, name_prefix, fallback]
       await driver.close();
     }
   });
+
+  it("sites.yaml coords land on :Site nodes after ingest", async () => {
+    const cfgDir = mkdtempSync(path.join(tmpdir(), "sites-yaml-"));
+    writeFileSync(
+      path.join(cfgDir, "hierarchy.yaml"),
+      `levels:
+  - { level: 1, label: Core, roles: [CORE] }
+unknown_label: Unknown
+unknown_level: 99
+sw_dynamic_leveling:
+  enabled: false
+`,
+    );
+    writeFileSync(
+      path.join(cfgDir, "role_codes.yaml"),
+      `type_map:
+  TCOR: CORE
+name_prefix_map: {}
+fallback: Unknown
+resolver_priority: [type_column, name_prefix, fallback]
+`,
+    );
+    // Seed JED (has coords) + ORPH (absent from sites.yaml → stays null).
+    writeFileSync(
+      path.join(cfgDir, "sites.yaml"),
+      `sites:
+  JED: { lat: 21.5433, lng: 39.1728, region: West }
+`,
+    );
+
+    const sc = new pg.Client({ connectionString: sourceUrl });
+    await sc.connect();
+    try {
+      await sc.query("TRUNCATE app_lldp, app_cid, app_devicecid, app_sitesportal");
+      await sc.query(
+        `INSERT INTO app_lldp
+           (device_a_name, device_a_interface, device_b_name, device_b_interface,
+            type_a, type_b, updated_at, status)
+         VALUES
+           ('JED-CORE-01',  'xe-1', 'JED-CORE-02',  'xe-1', 'TCOR', 'TCOR', now(), true),
+           ('ORPH-CORE-01', 'xe-2', 'ORPH-CORE-02', 'xe-2', 'TCOR', 'TCOR', now(), true)`,
+      );
+    } finally {
+      await sc.end();
+    }
+
+    await runIngest({
+      dryRun: false,
+      resolverConfigDir: cfgDir,
+      config: {
+        DATABASE_URL: appUrl,
+        DATABASE_URL_SOURCE: sourceUrl,
+        NEO4J_URI: neoUri,
+        NEO4J_USER: neoUser,
+        NEO4J_PASSWORD: neoPassword,
+      },
+    });
+
+    const driver = neo4j.driver(neoUri, neo4j.auth.basic(neoUser, neoPassword));
+    try {
+      const sess = driver.session();
+      try {
+        const jed = await sess.run(
+          "MATCH (s:Site {name: 'JED'}) RETURN s.lat AS lat, s.lng AS lng, s.region AS r",
+        );
+        expect(jed.records).toHaveLength(1);
+        expect(jed.records[0]!.get("lat")).toBeCloseTo(21.5433, 4);
+        expect(jed.records[0]!.get("lng")).toBeCloseTo(39.1728, 4);
+        expect(jed.records[0]!.get("r")).toBe("West");
+
+        const orph = await sess.run(
+          "MATCH (s:Site {name: 'ORPH'}) RETURN s.lat AS lat, s.lng AS lng, s.region AS r",
+        );
+        expect(orph.records).toHaveLength(1);
+        expect(orph.records[0]!.get("lat")).toBeNull();
+        expect(orph.records[0]!.get("lng")).toBeNull();
+        expect(orph.records[0]!.get("r")).toBeNull();
+      } finally {
+        await sess.close();
+      }
+    } finally {
+      await driver.close();
+    }
+  });
 });

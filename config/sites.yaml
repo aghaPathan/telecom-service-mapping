@@ -1,0 +1,38 @@
+# Site coordinates — loaded fresh at the start of every ingest run and
+# applied as `lat` / `lng` / `region` properties on :Site nodes during the
+# site-MERGE phase. See apps/ingestor/src/sites-coords.ts for the loader.
+#
+# Keys MUST match :Site.name in Neo4j — the single-token site code produced
+# by parseHostname (packages/db/src/hostname.ts). Keys not matching any
+# :Site node are harmless (they stay in the YAML; nothing is written).
+#
+# This file is the ONLY source of geographic data for the /map page. It is
+# NOT populated from app_sitesportal (the source DB has no lat/lng columns)
+# nor is it persisted to Neo4j without an ingest. Regenerate from v1 via
+# `pnpm tsx scripts/extract-v1-sites.ts` once v1 access is available —
+# the starter seed below uses public city-center coordinates for the major
+# Saudi metropolitan codes Mobily operates from and is intended as a
+# placeholder until a full device-count-weighted extract replaces it.
+#
+# Coordinates below are public geographic data (city centers), not operator
+# facility locations. Real facility coordinates live in v1 and must be
+# curated before this file goes to production.
+
+sites:
+  JED:  { lat: 21.5433, lng: 39.1728, region: West }
+  MKK:  { lat: 21.3891, lng: 39.8579, region: West }
+  TIF:  { lat: 21.2703, lng: 40.4158, region: West }
+  YNB:  { lat: 24.0897, lng: 38.0618, region: West }
+  MED:  { lat: 24.4686, lng: 39.6111, region: West }
+  RUH:  { lat: 24.7136, lng: 46.6753, region: Central }
+  BUR:  { lat: 26.3264, lng: 43.9750, region: Central }
+  HAI:  { lat: 27.5219, lng: 41.6907, region: Central }
+  DMM:  { lat: 26.4207, lng: 50.0888, region: East }
+  HAS:  { lat: 25.3833, lng: 49.5833, region: East }
+  JUB:  { lat: 27.0045, lng: 49.6469, region: East }
+  ABH:  { lat: 18.2465, lng: 42.5053, region: South }
+  JAZ:  { lat: 16.8892, lng: 42.5511, region: South }
+  NJR:  { lat: 17.4917, lng: 44.1322, region: South }
+  TBK:  { lat: 28.3838, lng: 36.5550, region: North }
+  HFR:  { lat: 28.4337, lng: 45.9708, region: North }
+  ARR:  { lat: 30.9753, lng: 41.0381, region: North }
