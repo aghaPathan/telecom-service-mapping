@@ -222,6 +222,8 @@ coverage/
 test-results/
 playwright-report/
 playwright/.cache/
+# Playwright MCP artifacts (snapshots, screenshots, console logs from the MCP server).
+.playwright-mcp/
 
 # Docker-mounted data volumes (keep out of repo)
 data/
