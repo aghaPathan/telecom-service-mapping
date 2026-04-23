@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { PathQuery, type Hop } from "@/lib/path";
+import { PathQuery, type Hop, type DeviceRef } from "@/lib/path";
+import { getDriver } from "@/lib/neo4j";
 import {
   UPE_ROLE,
   parseClusterParam,
@@ -228,4 +229,137 @@ export function applyUpeClustering<N extends AnyNode, E extends AnyEdge>(
   }
 
   return { nodes: outNodes, edges: outEdges };
+}
+
+// ---------- Neo4j resolvers: ego & core overview ----------
+
+// Neo4j variable-length bounds cannot be parameterized — validate then
+// interpolate. Mirrors MAX_PATH_HOPS pattern in lib/path.ts.
+const EgoHops = z.number().int().min(1).max(MAX_EGO_HOPS);
+
+// Duplicated toNum/toStrOrNull rather than importing from lib/path.ts —
+// project convention (see cluster.ts, downstream.ts). Keep it local.
+type Nr = { toNumber: () => number };
+function toNum(v: unknown): number {
+  if (typeof v === "number") return v;
+  if (v && typeof (v as Nr).toNumber === "function") return (v as Nr).toNumber();
+  return Number(v);
+}
+function toStrOrNull(v: unknown): string | null {
+  return v == null ? null : String(v);
+}
+function deviceRefFrom(n: Record<string, unknown>): DeviceRef {
+  return {
+    name: String(n.name),
+    role: String(n.role ?? "Unknown"),
+    level: toNum(n.level ?? 0),
+    site: toStrOrNull(n.site),
+    domain: toStrOrNull(n.domain),
+  };
+}
+
+export type EgoResult =
+  | {
+      status: "ok";
+      start: DeviceRef;
+      nodes: DeviceRef[];
+      edges: Array<{ a: string; b: string }>;
+    }
+  | { status: "start_not_found" };
+
+export async function runEgoGraph(args: {
+  name: string;
+  hops: number;
+}): Promise<EgoResult> {
+  const hops = EgoHops.parse(args.hops);
+  const driver = getDriver();
+  const session = driver.session({ defaultAccessMode: "READ" });
+  try {
+    // 0..hops reach (includes the start itself so single-node/island cases
+    // return the start node with no edges). id(n) < id(m) dedupes undirected
+    // pairs. Filter out null r from the (start)->self self-join.
+    const res = await session.run(
+      `MATCH (start:Device {name: $name})
+       OPTIONAL MATCH (start)-[:CONNECTS_TO*0..${hops}]-(reached:Device)
+       WITH start, collect(DISTINCT reached) AS ns
+       UNWIND ns AS n
+       OPTIONAL MATCH (n)-[r:CONNECTS_TO]-(m:Device)
+         WHERE m IN ns AND id(n) < id(m)
+       WITH start,
+            ns,
+            collect(DISTINCT CASE WHEN r IS NULL THEN null
+                                  ELSE { a: startNode(r).name, b: endNode(r).name }
+                             END) AS rawEdges
+       RETURN start { .name, .role, .level, .site, .domain } AS start,
+              [n IN ns WHERE n IS NOT NULL
+                | n { .name, .role, .level, .site, .domain }] AS nodes,
+              [e IN rawEdges WHERE e IS NOT NULL] AS edges`,
+      { name: args.name },
+    );
+
+    if (res.records.length === 0) {
+      return { status: "start_not_found" };
+    }
+    const rec = res.records[0]!;
+    const startRaw = rec.get("start");
+    if (startRaw == null) {
+      return { status: "start_not_found" };
+    }
+    const start = deviceRefFrom(startRaw as Record<string, unknown>);
+    const nodes = (rec.get("nodes") as Array<Record<string, unknown>>).map(
+      deviceRefFrom,
+    );
+    const edges = (
+      rec.get("edges") as Array<{ a: string; b: string }>
+    ).map((e) => ({ a: String(e.a), b: String(e.b) }));
+    return { status: "ok", start, nodes, edges };
+  } finally {
+    await session.close();
+  }
+}
+
+export type CoreOverviewResult = {
+  nodes: DeviceRef[];
+  edges: Array<{ a: string; b: string }>;
+};
+
+// Filter cores by level=1, never by :Core label — the ingestor applies role
+// strings from config/hierarchy.yaml verbatim as labels (uppercase "CORE").
+// See CLAUDE.md pitfall.
+export async function runCoreOverview(): Promise<CoreOverviewResult> {
+  const driver = getDriver();
+  const session = driver.session({ defaultAccessMode: "READ" });
+  try {
+    const res = await session.run(
+      `MATCH (core:Device) WHERE core.level = 1
+       OPTIONAL MATCH (core)-[:CONNECTS_TO]-(nb:Device)
+       WITH collect(DISTINCT core) + collect(DISTINCT nb) AS all
+       UNWIND all AS n
+       WITH collect(DISTINCT n) AS ns
+       UNWIND ns AS n
+       OPTIONAL MATCH (n)-[r:CONNECTS_TO]-(m:Device)
+         WHERE m IN ns AND id(n) < id(m)
+       WITH ns,
+            collect(DISTINCT CASE WHEN r IS NULL THEN null
+                                  ELSE { a: startNode(r).name, b: endNode(r).name }
+                             END) AS rawEdges
+       RETURN [n IN ns WHERE n IS NOT NULL
+                | n { .name, .role, .level, .site, .domain }] AS nodes,
+              [e IN rawEdges WHERE e IS NOT NULL] AS edges`,
+    );
+
+    if (res.records.length === 0) {
+      return { nodes: [], edges: [] };
+    }
+    const rec = res.records[0]!;
+    const nodes = (rec.get("nodes") as Array<Record<string, unknown>>).map(
+      deviceRefFrom,
+    );
+    const edges = (
+      rec.get("edges") as Array<{ a: string; b: string }>
+    ).map((e) => ({ a: String(e.a), b: String(e.b) }));
+    return { nodes, edges };
+  } finally {
+    await session.close();
+  }
 }
