@@ -15,6 +15,8 @@ export default async function PathDevicePage({
   const session = await requireRole("viewer");
   const name = decodeURIComponent(params.name);
 
+  // Same-process direct call — no HTTP round-trip, no auth cookie needed.
+  // Diverges from app/device/[name] in task B3 (detail page); do not consolidate.
   let result: PathResponse | null = null;
   try {
     result = await runPath({ kind: "device", value: name });
