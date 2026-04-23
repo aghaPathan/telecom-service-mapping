@@ -10,7 +10,6 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        display: ["'Instrument Serif'", "ui-serif", "Georgia", "serif"],
         sans: [
           "'Geist'",
           "ui-sans-serif",
@@ -29,23 +28,6 @@ const config: Config = {
           "Consolas",
           "monospace",
         ],
-      },
-      colors: {
-        ink: {
-          DEFAULT: "#0b0b0c",
-          soft: "#1a1a1c",
-        },
-        paper: {
-          DEFAULT: "#f7f5ef",
-          soft: "#eeece3",
-        },
-        accent: {
-          DEFAULT: "#c2410c",
-          soft: "#fb923c",
-        },
-      },
-      letterSpacing: {
-        widest2: "0.25em",
       },
     },
   },

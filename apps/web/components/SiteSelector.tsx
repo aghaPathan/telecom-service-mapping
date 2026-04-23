@@ -127,9 +127,8 @@ export function SiteSelector({
       {label ? (
         <label
           htmlFor={`${listId}-input`}
-          className="mb-1.5 flex items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500 dark:text-slate-400"
+          className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
         >
-          <span aria-hidden="true" className="h-px w-3 bg-slate-400 dark:bg-slate-600" />
           {label}
         </label>
       ) : null}
@@ -154,7 +153,7 @@ export function SiteSelector({
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          className="w-full rounded-none border border-slate-400 bg-white py-2 pl-3 pr-14 font-mono text-[13px] text-slate-900 outline-none transition-colors focus:border-orange-500 focus:ring-2 focus:ring-orange-500/30 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-50 dark:focus:border-orange-400 dark:focus:ring-orange-400/30"
+          className="w-full rounded-md border border-slate-300 bg-white py-1.5 pl-3 pr-14 font-mono text-[13px] text-slate-900 shadow-sm outline-none transition-colors focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-50 dark:focus:border-indigo-400 dark:focus:ring-indigo-400/30"
           autoComplete="off"
           spellCheck={false}
         />
@@ -163,14 +162,14 @@ export function SiteSelector({
             type="button"
             onClick={clear}
             aria-label="Clear site"
-            className="absolute inset-y-0 right-7 flex w-7 items-center justify-center border-l border-slate-300 font-mono text-slate-400 transition-colors hover:text-orange-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-slate-700 dark:hover:text-orange-400"
+            className="absolute inset-y-0 right-7 flex w-7 items-center justify-center font-mono text-slate-400 transition-colors hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:text-slate-200"
           >
             ×
           </button>
         ) : null}
         <span
           aria-hidden="true"
-          className={`pointer-events-none absolute inset-y-0 right-0 flex w-7 items-center justify-center border-l border-slate-300 text-slate-500 transition-transform dark:border-slate-700 dark:text-slate-400 ${
+          className={`pointer-events-none absolute inset-y-0 right-0 flex w-7 items-center justify-center text-xs text-slate-500 transition-transform dark:text-slate-400 ${
             open ? "rotate-180" : ""
           }`}
         >
@@ -181,7 +180,7 @@ export function SiteSelector({
         <ul
           id={`${listId}-listbox`}
           role="listbox"
-          className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-none border border-slate-400 bg-white py-1 shadow-[4px_4px_0_0_rgba(0,0,0,0.08)] dark:border-slate-600 dark:bg-slate-950 dark:shadow-[4px_4px_0_0_rgba(255,255,255,0.05)]"
+          className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-950"
         >
           {filtered.map((site, i) => {
             const isActive = i === active;
@@ -199,17 +198,17 @@ export function SiteSelector({
                 onMouseEnter={() => setActive(i)}
                 className={`flex cursor-pointer items-center gap-2 px-3 py-1.5 font-mono text-[13px] ${
                   isActive
-                    ? "bg-orange-500/10 text-slate-900 dark:bg-orange-400/10 dark:text-slate-50"
+                    ? "bg-indigo-50 text-indigo-900 dark:bg-indigo-900/40 dark:text-indigo-100"
                     : "text-slate-700 dark:text-slate-300"
                 }`}
               >
                 <span
                   aria-hidden="true"
-                  className={`inline-block w-3 font-mono text-orange-600 dark:text-orange-400 ${
-                    isSelected || isActive ? "opacity-100" : "opacity-0"
+                  className={`inline-block w-2 text-indigo-600 dark:text-indigo-400 ${
+                    isSelected ? "opacity-100" : "opacity-0"
                   }`}
                 >
-                  ▸
+                  •
                 </span>
                 {site}
               </li>
@@ -219,7 +218,7 @@ export function SiteSelector({
       ) : null}
       {open && filtered.length === 0 ? (
         <div
-          className="absolute z-10 mt-1 w-full rounded-none border border-slate-400 bg-white px-3 py-2 font-mono text-[12px] uppercase tracking-wider text-slate-500 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-400"
+          className="absolute z-10 mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500 shadow-lg dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400"
           role="status"
         >
           No sites match “{query}”.
