@@ -303,7 +303,11 @@ function parseArgs(argv: readonly string[]): {
  */
 async function runScheduled(): Promise<void> {
   const config = loadConfig();
-  const { Pool } = await import("pg");
+  // pg is CJS; Node's ESM dynamic import doesn't synthesize `Pool` as a named
+  // export for this package, so destructure from `default` the same way
+  // packages/db/src/index.ts does with the static import.
+  const { default: pg } = await import("pg");
+  const { Pool } = pg;
   const schedulerPool = new Pool({
     connectionString: config.DATABASE_URL,
     max: 1,
