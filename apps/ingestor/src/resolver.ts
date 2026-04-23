@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import type { HostnameParseConfig } from "@tsm/db";
 
 const HierarchySchema = z.object({
   levels: z
@@ -43,6 +44,13 @@ const RoleCodesSchema = z.object({
   type_map: z.record(z.string(), z.string().min(1)),
   name_prefix_map: z.record(z.string(), z.string().min(1)).default({}),
   name_token: NameTokenSchema.optional(),
+  /**
+   * Vendor-prefix → canonical vendor name (consumed by `parseHostname`). The
+   * third hyphen-token is typically `<VENDOR><SERIAL>` (e.g. `NO01` → Nokia).
+   * Empty by default so callers that haven't seeded this in role_codes.yaml
+   * keep loading cleanly — ingest just skips hostname-derived vendor.
+   */
+  vendor_token_map: z.record(z.string(), z.string().min(1)).default({}),
   fallback: z.string().min(1).default("Unknown"),
   resolver_priority: z
     .array(z.enum(["type_column", "name_prefix", "name_token", "fallback"]))
@@ -61,6 +69,13 @@ export type ResolverConfig = {
   roleToLabel: Map<string, string>;
   /** Prefix entries sorted by descending prefix length (longest-match wins). */
   prefixes: { prefix: string; role: string }[];
+  /**
+   * Structural hostname-parse config used by `parseHostname` (S14) during
+   * device enrichment. Token indices follow the `JED-ICSG-NO01` convention:
+   * site at token 0, role at the same index as `name_token.index` (or 1 by
+   * default), vendor+serial at the next index.
+   */
+  hostname: HostnameParseConfig;
 };
 
 export type DeviceRoleInput = {
@@ -101,7 +116,17 @@ export function buildResolverConfig(
   const prefixes = Object.entries(roles.name_prefix_map)
     .map(([prefix, role]) => ({ prefix, role }))
     .sort((a, b) => b.prefix.length - a.prefix.length);
-  return { hierarchy, roles, roleToLevel, roleToLabel, prefixes };
+  const roleTokenIndex = roles.name_token?.index ?? 1;
+  const separator = roles.name_token?.separator ?? "-";
+  const hostname: HostnameParseConfig = {
+    site_token_index: 0,
+    role_token_index: roleTokenIndex,
+    vendor_token_index: roleTokenIndex + 1,
+    separator,
+    role_map: roles.name_token?.map ?? {},
+    vendor_token_map: roles.vendor_token_map,
+  };
+  return { hierarchy, roles, roleToLevel, roleToLabel, prefixes, hostname };
 }
 
 /**

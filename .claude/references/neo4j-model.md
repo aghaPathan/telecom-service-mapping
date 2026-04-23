@@ -21,7 +21,9 @@
 
 - Unique: `Device(name)`, `Site(name)`, `Service(cid)`
 - Fulltext: `device_name_fulltext` on `Device(name)`
-- Btree: `device_role`, `device_domain`, `device_site`, `device_level`, `service_mobily_cid`
+- Btree: `device_role`, `device_domain`, `device_site`, `device_vendor`, `device_level`, `service_mobily_cid`
+
+`Device.site` is derived from the hostname (first two hyphen-tokens, e.g. `PK-KHI-CORE-01` → `PK-KHI`) and always equals the `:Site` node's name for the `LOCATED_AT` target — filter by either interchangeably. `Device.vendor` prefers the hostname-derived canonical vendor from `parseHostname` + `config/role_codes.yaml` `vendor_token_map` (e.g. `NO01` → `Nokia`); it falls back to the source row's `vendor_a`/`vendor_b` when the third hyphen-token isn't mapped or the hostname doesn't follow the `SITE-ROLE-VENDOR<SERIAL>` convention.
 
 ## Edge-direction rule
 

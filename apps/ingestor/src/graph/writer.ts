@@ -1,4 +1,5 @@
 import type { Driver } from "neo4j-driver";
+import { parseHostname } from "@tsm/db";
 import type { DeviceProps, LinkProps } from "../dedup.js";
 import type { ResolverConfig } from "../resolver.js";
 import { deriveSiteFromDeviceName } from "../site.js";
@@ -128,6 +129,9 @@ export async function writeGraph(
         "CREATE INDEX device_site IF NOT EXISTS FOR (d:Device) ON (d.site)",
       );
       await session.run(
+        "CREATE INDEX device_vendor IF NOT EXISTS FOR (d:Device) ON (d.vendor)",
+      );
+      await session.run(
         "CREATE INDEX service_mobily_cid IF NOT EXISTS FOR (s:Service) ON (s.mobily_cid)",
       );
       await session.run(
@@ -157,16 +161,25 @@ export async function writeGraph(
   let nodes = 0;
   for (const [role, devices] of byRole) {
     for (const batch of chunk(devices, BATCH_SIZE)) {
-      const payload = batch.map((d) => ({
-        name: d.name,
-        vendor: d.vendor,
-        domain: d.domain,
-        ip: d.ip,
-        mac: d.mac,
-        role,
-        level: d.level ?? resolverCfg.hierarchy.unknown_level,
-        site: deriveSiteFromDeviceName(d.name),
-      }));
+      const payload = batch.map((d) => {
+        // S15: hostname-derived vendor wins when available (canonical form
+        // like "Nokia" / "Huawei"); fall back to whatever the source row
+        // carried. parseHostname returns null when the third token isn't in
+        // the configured vendor_token_map, so synthetic fixtures and any
+        // hostnames that don't follow the `SITE-ROLE-VENDOR<SERIAL>`
+        // convention keep their source-provided vendor unchanged.
+        const parsed = parseHostname(d.name, resolverCfg.hostname);
+        return {
+          name: d.name,
+          vendor: parsed.vendor ?? d.vendor,
+          domain: d.domain,
+          ip: d.ip,
+          mac: d.mac,
+          role,
+          level: d.level ?? resolverCfg.hierarchy.unknown_level,
+          site: deriveSiteFromDeviceName(d.name),
+        };
+      });
       const session = driver.session();
       try {
         await session.executeWrite((tx) =>
