@@ -70,8 +70,10 @@ describe("hopsToGraphDTO", () => {
 
   it("deduplicates when the same name appears twice (loops)", () => {
     const loopy: Hop[] = [...hops, hops[0]!];
-    const { nodes } = hopsToGraphDTO(loopy);
+    const { nodes, edges } = hopsToGraphDTO(loopy);
     expect(new Set(nodes.map((n) => n.id)).size).toBe(nodes.length);
+    // reactflow requires unique edge ids
+    expect(new Set(edges.map((e) => e.id)).size).toBe(edges.length);
   });
 });
 
@@ -108,5 +110,33 @@ describe("applyUpeClustering", () => {
     const nodes = [mk("U1", "A"), mk("U2", "A"), mk("U3", "A"), mk("U4", "A")];
     const { nodes: out } = applyUpeClustering(nodes, [], false);
     expect(out.filter((n) => n.type === "cluster").length).toBe(0);
+  });
+
+  it("clusters each site independently when multiple sites exceed threshold", () => {
+    const nodes = [
+      mk("A1", "A"), mk("A2", "A"), mk("A3", "A"), mk("A4", "A"),
+      mk("B1", "B"), mk("B2", "B"), mk("B3", "B"), mk("B4", "B"),
+    ];
+    const { nodes: out } = applyUpeClustering(nodes, [], null);
+    const clusters = out.filter((n) => n.type === "cluster");
+    expect(clusters).toHaveLength(2);
+    expect(new Set(clusters.map((c) => c.id))).toEqual(
+      new Set(["cluster:A", "cluster:B"]),
+    );
+  });
+
+  it("dedupes edges collapsed onto the same cluster pair", () => {
+    const nodes = [
+      mk("U1", "A"), mk("U2", "A"), mk("U3", "A"), mk("U4", "A"),
+      mk("C1", "A", "CSG", 3),
+    ];
+    // Two edges CSG→UPE that both rewrite to CSG→cluster:A; must dedupe to 1.
+    const edges = [
+      { id: "e1", source: "C1", target: "U1" },
+      { id: "e2", source: "C1", target: "U2" },
+    ];
+    const { edges: outEdges } = applyUpeClustering(nodes, edges, null);
+    expect(outEdges).toHaveLength(1);
+    expect(outEdges[0]).toMatchObject({ source: "C1", target: "cluster:A" });
   });
 });

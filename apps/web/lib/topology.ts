@@ -129,14 +129,15 @@ export function hopsToGraphDTO(hops: Hop[]): {
   }
 
   const edges: GraphEdgeDTO[] = [];
+  const seenEdges = new Set<string>();
   for (let i = 1; i < hops.length; i++) {
     const a = hops[i - 1]!;
     const b = hops[i]!;
-    edges.push({
-      id: `${a.name}->${b.name}`,
-      source: a.name,
-      target: b.name,
-    });
+    if (a.name === b.name) continue;
+    const id = `${a.name}->${b.name}`;
+    if (seenEdges.has(id)) continue;
+    seenEdges.add(id);
+    edges.push({ id, source: a.name, target: b.name });
   }
 
   return { nodes, edges };
