@@ -97,10 +97,13 @@ describe("ingest integration (testcontainers)", () => {
         );
       `);
       await sc.query(
+        // Portal sites follow parseHostname's single-token convention — the
+        // same key that :Site.name is MERGEd on from device hostnames. 'XX'
+        // matches every XX-* device in the fixture; 'YY' has no devices so
+        // stays portal-only (orphan :Site with category but no :LOCATED_AT).
         `INSERT INTO app_sitesportal (site_name, category, site_url) VALUES
-           ('XX-AAA', 'core-hub',      'https://example.invalid/XX-AAA'),
-           ('XX-BBB', 'aggregation',   'https://example.invalid/XX-BBB'),
-           ('XX-ZZZ', 'unused-portal', null)`,
+           ('XX', 'core-hub',      'https://example.invalid/XX'),
+           ('YY', 'unused-portal', null)`,
       );
       // Services:
       //   - SVC-1: protected by SVC-2 (primary→backup edge)
@@ -258,23 +261,35 @@ describe("ingest integration (testcontainers)", () => {
         // Sites: portal rows + derived-from-name union. Portal rows carry
         // category + url; derived-only rows have null category/url.
         const portalSite = await sess.run(
-          "MATCH (s:Site {name: 'XX-AAA'}) RETURN s.category AS c, s.url AS u",
+          "MATCH (s:Site {name: 'XX'}) RETURN s.category AS c, s.url AS u",
         );
         expect(portalSite.records).toHaveLength(1);
         expect(portalSite.records[0]!.get("c")).toBe("core-hub");
 
+        // The fixture has Δ-CORE-01 and Δ-CORE-02 (unicode site, not in portal) —
+        // derived-only :Site with null category.
         const derivedSite = await sess.run(
-          "MATCH (s:Site {name: 'XX-CCC'}) RETURN s.category AS c",
+          "MATCH (s:Site {name: 'Δ'}) RETURN s.category AS c",
         );
         expect(derivedSite.records).toHaveLength(1);
         expect(derivedSite.records[0]!.get("c")).toBeNull();
+
+        // Orphan portal site — registered in app_sitesportal but no device
+        // resolves to first-token 'YY', so the :Site node has category but
+        // no :LOCATED_AT edges.
+        const orphanPortal = await sess.run(
+          "MATCH (s:Site {name: 'YY'}) OPTIONAL MATCH (s)<-[:LOCATED_AT]-(d) RETURN s.category AS c, count(d) AS n",
+        );
+        expect(orphanPortal.records).toHaveLength(1);
+        expect(orphanPortal.records[0]!.get("c")).toBe("unused-portal");
+        expect(orphanPortal.records[0]!.get("n").toNumber()).toBe(0);
 
         const locatedAt = await sess.run(
           `MATCH (d:Device {name: 'XX-AAA-CORE-01'})-[:LOCATED_AT]->(s:Site)
            RETURN s.name AS site`,
         );
         expect(locatedAt.records).toHaveLength(1);
-        expect(locatedAt.records[0]!.get("site")).toBe("XX-AAA");
+        expect(locatedAt.records[0]!.get("site")).toBe("XX");
 
         // Services — all 5 fixture services materialize as :Service nodes.
         const svcCount = await sess.run(
@@ -553,6 +568,90 @@ resolver_priority: [type_column, name_prefix, fallback]
         expect(await q("SW-CORE-BOUND")).toBe(2);     // connected to CORE
         expect(await q("SW-ACCESS-BOUND")).toBe(4);   // connected to RAN
         expect(await q("SW-ISOLATED")).toBe(3);       // only connected to SW → default
+      } finally {
+        await sess.close();
+      }
+    } finally {
+      await driver.close();
+    }
+  });
+
+  it("sites.yaml coords land on :Site nodes after ingest", async () => {
+    const cfgDir = mkdtempSync(path.join(tmpdir(), "sites-yaml-"));
+    writeFileSync(
+      path.join(cfgDir, "hierarchy.yaml"),
+      `levels:
+  - { level: 1, label: Core, roles: [CORE] }
+unknown_label: Unknown
+unknown_level: 99
+sw_dynamic_leveling:
+  enabled: false
+`,
+    );
+    writeFileSync(
+      path.join(cfgDir, "role_codes.yaml"),
+      `type_map:
+  TCOR: CORE
+name_prefix_map: {}
+fallback: Unknown
+resolver_priority: [type_column, name_prefix, fallback]
+`,
+    );
+    // Seed JED (has coords) + ORPH (absent from sites.yaml → stays null).
+    writeFileSync(
+      path.join(cfgDir, "sites.yaml"),
+      `sites:
+  JED: { lat: 21.5433, lng: 39.1728, region: West }
+`,
+    );
+
+    const sc = new pg.Client({ connectionString: sourceUrl });
+    await sc.connect();
+    try {
+      await sc.query("TRUNCATE app_lldp, app_cid, app_devicecid, app_sitesportal");
+      await sc.query(
+        `INSERT INTO app_lldp
+           (device_a_name, device_a_interface, device_b_name, device_b_interface,
+            type_a, type_b, updated_at, status)
+         VALUES
+           ('JED-CORE-01',  'xe-1', 'JED-CORE-02',  'xe-1', 'TCOR', 'TCOR', now(), true),
+           ('ORPH-CORE-01', 'xe-2', 'ORPH-CORE-02', 'xe-2', 'TCOR', 'TCOR', now(), true)`,
+      );
+    } finally {
+      await sc.end();
+    }
+
+    await runIngest({
+      dryRun: false,
+      resolverConfigDir: cfgDir,
+      config: {
+        DATABASE_URL: appUrl,
+        DATABASE_URL_SOURCE: sourceUrl,
+        NEO4J_URI: neoUri,
+        NEO4J_USER: neoUser,
+        NEO4J_PASSWORD: neoPassword,
+      },
+    });
+
+    const driver = neo4j.driver(neoUri, neo4j.auth.basic(neoUser, neoPassword));
+    try {
+      const sess = driver.session();
+      try {
+        const jed = await sess.run(
+          "MATCH (s:Site {name: 'JED'}) RETURN s.lat AS lat, s.lng AS lng, s.region AS r",
+        );
+        expect(jed.records).toHaveLength(1);
+        expect(jed.records[0]!.get("lat")).toBeCloseTo(21.5433, 4);
+        expect(jed.records[0]!.get("lng")).toBeCloseTo(39.1728, 4);
+        expect(jed.records[0]!.get("r")).toBe("West");
+
+        const orph = await sess.run(
+          "MATCH (s:Site {name: 'ORPH'}) RETURN s.lat AS lat, s.lng AS lng, s.region AS r",
+        );
+        expect(orph.records).toHaveLength(1);
+        expect(orph.records[0]!.get("lat")).toBeNull();
+        expect(orph.records[0]!.get("lng")).toBeNull();
+        expect(orph.records[0]!.get("r")).toBeNull();
       } finally {
         await sess.close();
       }

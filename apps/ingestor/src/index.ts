@@ -22,6 +22,7 @@ import {
   resolveRole,
   type ResolverConfig,
 } from "./resolver.js";
+import { loadSitesYaml, defaultSitesYamlPath } from "./sites-coords.js";
 import path from "node:path";
 
 export type RunIngestOpts = {
@@ -260,12 +261,20 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       { connectionAcquisitionTimeout: 10_000 },
     );
     await waitForNeo4j(driver);
+    const resolverDir =
+      opts.resolverConfigDir
+        ?? config.RESOLVER_CONFIG_DIR
+        ?? defaultConfigDir();
+    const siteCoords = loadSitesYaml(defaultSitesYamlPath(resolverDir));
+    log("info", "site_coords_loaded", { count: siteCoords.size });
+
     const counts = await writeGraph(
       driver,
       {
         devices: dedup.devices,
         links: dedup.links,
         sites,
+        siteCoords,
         services: svcGraph.services,
         terminates: svcGraph.terminates,
         protections: svcGraph.protections,

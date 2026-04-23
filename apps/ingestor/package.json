@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "ingest": "node dist/index.js",
     "dev": "tsx src/index.ts",
+    "extract-v1-sites": "tsx ../../scripts/extract-v1-sites.ts",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'lint placeholder' && exit 0",
     "test": "vitest run"
