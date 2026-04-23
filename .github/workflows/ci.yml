@@ -45,7 +45,7 @@ jobs:
       NEXTAUTH_URL: http://localhost
       INGEST_CRON: 0 2 * * *
       INGEST_MODE: smoke
-      CADDY_TLS_MODE: internal
+      CADDY_TLS_MODE: http
       CADDY_DOMAIN: localhost
     steps:
       - uses: actions/checkout@v4
