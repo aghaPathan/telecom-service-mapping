@@ -52,3 +52,10 @@ export async function migrate(databaseUrl?: string): Promise<void> {
 }
 
 export type { Pool };
+
+export {
+  parseHostname,
+  DEFAULT_HOSTNAME_CONFIG,
+  type HostnameParseConfig,
+  type ParsedHostname,
+} from "./hostname.js";
