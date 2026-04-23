@@ -20,7 +20,7 @@ export default async function RootLayout({
   const session = await getSession();
   return (
     <html lang="en">
-      <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
+      <body className="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased">
         <header className="border-b border-slate-200 bg-white">
           <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
             <Link
