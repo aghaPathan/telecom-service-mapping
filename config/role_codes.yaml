@@ -86,6 +86,17 @@ name_token:
     PTP: PTP
     PMP: PMP
 
+# Vendor-prefix map consumed by `parseHostname()` (S14). The third hyphen-
+# token is typically `<VENDOR_PREFIX><SERIAL>` (e.g. `NO01` → Nokia, serial
+# 01). Seeded with the five prefixes observed in live data; unmapped tokens
+# fall through to `vendor: null`.
+vendor_token_map:
+  HU: Huawei
+  NO: Nokia
+  ER: Ericsson
+  NC: Nokia    # legacy Alcatel-Lucent code; subsumed by Nokia
+  ZT: ZTE
+
 # Legacy prefix map — left in place so name_prefix_map-based configs keep
 # working. Empty by default; only add entries if you want the resolver to try
 # prefix-matching before or after name_token (list in `resolver_priority`).
