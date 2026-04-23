@@ -242,3 +242,21 @@ Each step RED → GREEN → REFACTOR, one commit per step.
   just the positive case.
 - **Migration numbering collision** — grep `grep -l "1700000000020" packages/db`
   before writing.
+
+## PR B landing notes (2026-04-23)
+
+Frontend + E2E shipped on branch `feat/issue-12-saved-views-ui` per the
+detail plan at `docs/plans/2026-04-23-issue-12-saved-views-frontend.md`:
+
+- `SaveViewButton` mounted on `/device/[name]`, `/service/[cid]`, and
+  `/device/[name]/downstream` (gated on `result.status === "ok"`).
+- `MyViewsDropdown` mounted in the header (logged-in branch only; fetches
+  lazily on first open).
+- Pure URL-rebuilder helper (`lib/saved-views-url.ts`) replays a saved
+  payload into the canonical route; viewer option list hard-capped to
+  `["private"]` by `lib/saved-views-visibility-ui.ts`.
+- Integration drift-guard (`test/saved-views-ui.int.test.ts`) asserts the
+  `listViews` shape the dropdown consumes.
+- Playwright spec (`e2e/saved-views.spec.ts`) covers the
+  operator→viewer share-with-role round trip and the viewer-only-private
+  option-list negative case.
