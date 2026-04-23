@@ -9,3 +9,6 @@ services:
   neo4j:
     ports:
       - "127.0.0.1:7687:7687"
+  caddy:
+    environment:
+      CADDY_TLS_MODE: http
