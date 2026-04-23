@@ -2,7 +2,6 @@ import type { Driver } from "neo4j-driver";
 import { parseHostname } from "@tsm/db";
 import type { DeviceProps, LinkProps } from "../dedup.js";
 import type { ResolverConfig } from "../resolver.js";
-import { deriveSiteFromDeviceName } from "../site.js";
 import type {
   ServiceProps,
   TerminateEdge,
@@ -177,7 +176,7 @@ export async function writeGraph(
           mac: d.mac,
           role,
           level: d.level ?? resolverCfg.hierarchy.unknown_level,
-          site: deriveSiteFromDeviceName(d.name),
+          site: parsed.site,
         };
       });
       const session = driver.session();
@@ -248,7 +247,7 @@ export async function writeGraph(
     });
   }
   for (const d of data.devices) {
-    const site = deriveSiteFromDeviceName(d.name);
+    const site = parseHostname(d.name, resolverCfg.hostname).site;
     if (site === null) continue;
     if (!siteByName.has(site)) {
       siteByName.set(site, { name: site, category: null, url: null });
@@ -277,7 +276,10 @@ export async function writeGraph(
   // true if the device name's prefix matches a portal site).
   let located_at_edges = 0;
   const locatedPayload = data.devices
-    .map((d) => ({ name: d.name, site: deriveSiteFromDeviceName(d.name) }))
+    .map((d) => ({
+      name: d.name,
+      site: parseHostname(d.name, resolverCfg.hostname).site,
+    }))
     .filter((p): p is { name: string; site: string } => p.site !== null);
   for (const batch of chunk(locatedPayload, BATCH_SIZE)) {
     const session = driver.session();

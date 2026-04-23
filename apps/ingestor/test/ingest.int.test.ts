@@ -97,10 +97,13 @@ describe("ingest integration (testcontainers)", () => {
         );
       `);
       await sc.query(
+        // Portal sites follow parseHostname's single-token convention — the
+        // same key that :Site.name is MERGEd on from device hostnames. 'XX'
+        // matches every XX-* device in the fixture; 'YY' has no devices so
+        // stays portal-only (orphan :Site with category but no :LOCATED_AT).
         `INSERT INTO app_sitesportal (site_name, category, site_url) VALUES
-           ('XX-AAA', 'core-hub',      'https://example.invalid/XX-AAA'),
-           ('XX-BBB', 'aggregation',   'https://example.invalid/XX-BBB'),
-           ('XX-ZZZ', 'unused-portal', null)`,
+           ('XX', 'core-hub',      'https://example.invalid/XX'),
+           ('YY', 'unused-portal', null)`,
       );
       // Services:
       //   - SVC-1: protected by SVC-2 (primary→backup edge)
@@ -258,23 +261,35 @@ describe("ingest integration (testcontainers)", () => {
         // Sites: portal rows + derived-from-name union. Portal rows carry
         // category + url; derived-only rows have null category/url.
         const portalSite = await sess.run(
-          "MATCH (s:Site {name: 'XX-AAA'}) RETURN s.category AS c, s.url AS u",
+          "MATCH (s:Site {name: 'XX'}) RETURN s.category AS c, s.url AS u",
         );
         expect(portalSite.records).toHaveLength(1);
         expect(portalSite.records[0]!.get("c")).toBe("core-hub");
 
+        // The fixture has Δ-CORE-01 and Δ-CORE-02 (unicode site, not in portal) —
+        // derived-only :Site with null category.
         const derivedSite = await sess.run(
-          "MATCH (s:Site {name: 'XX-CCC'}) RETURN s.category AS c",
+          "MATCH (s:Site {name: 'Δ'}) RETURN s.category AS c",
         );
         expect(derivedSite.records).toHaveLength(1);
         expect(derivedSite.records[0]!.get("c")).toBeNull();
+
+        // Orphan portal site — registered in app_sitesportal but no device
+        // resolves to first-token 'YY', so the :Site node has category but
+        // no :LOCATED_AT edges.
+        const orphanPortal = await sess.run(
+          "MATCH (s:Site {name: 'YY'}) OPTIONAL MATCH (s)<-[:LOCATED_AT]-(d) RETURN s.category AS c, count(d) AS n",
+        );
+        expect(orphanPortal.records).toHaveLength(1);
+        expect(orphanPortal.records[0]!.get("c")).toBe("unused-portal");
+        expect(orphanPortal.records[0]!.get("n").toNumber()).toBe(0);
 
         const locatedAt = await sess.run(
           `MATCH (d:Device {name: 'XX-AAA-CORE-01'})-[:LOCATED_AT]->(s:Site)
            RETURN s.name AS site`,
         );
         expect(locatedAt.records).toHaveLength(1);
-        expect(locatedAt.records[0]!.get("site")).toBe("XX-AAA");
+        expect(locatedAt.records[0]!.get("site")).toBe("XX");
 
         // Services — all 5 fixture services materialize as :Service nodes.
         const svcCount = await sess.run(
