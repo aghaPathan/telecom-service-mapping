@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest";
 import { savedViewToHref } from "@/lib/saved-views-url";
 
 describe("savedViewToHref", () => {
-  it("path/device → /device/:name", () => {
+  it("path/device → /path/:name", () => {
     expect(
       savedViewToHref({ kind: "path", query: { kind: "device", value: "E2E-SV-CSG" } }),
-    ).toBe("/device/E2E-SV-CSG");
+    ).toBe("/path/E2E-SV-CSG");
   });
 
   it("path/service → /service/:cid", () => {
@@ -17,7 +17,7 @@ describe("savedViewToHref", () => {
   it("path URL-encodes suspicious device names", () => {
     expect(
       savedViewToHref({ kind: "path", query: { kind: "device", value: "a/b c" } }),
-    ).toBe("/device/a%2Fb%20c");
+    ).toBe("/path/a%2Fb%20c");
   });
 
   it("downstream → /device/:name/downstream with querystring", () => {

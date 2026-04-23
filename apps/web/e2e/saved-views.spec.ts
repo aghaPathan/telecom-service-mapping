@@ -165,7 +165,7 @@ test.describe.serial("saved-views (#12) — share-with-role round trip", () => {
     await loginViaForm(opPage, OP.email, OP.password);
     await opPage.waitForURL((u) => !u.pathname.startsWith("/login"));
 
-    await opPage.goto(`/device/${CSG}`);
+    await opPage.goto(`/path/${CSG}`);
     await expect(opPage.getByTestId("path-view")).toBeVisible();
 
     await opPage.getByTestId("save-view-toggle").click();
@@ -197,7 +197,7 @@ test.describe.serial("saved-views (#12) — share-with-role round trip", () => {
     await expect(item).toBeVisible();
     await item.click();
 
-    await vwPage.waitForURL(new RegExp(`/device/${CSG}$`));
+    await vwPage.waitForURL(new RegExp(`/path/${CSG}$`));
     await expect(vwPage.getByTestId("path-view")).toBeVisible();
     const vwHops = await vwPage.getByTestId("path-hop-name").allInnerTexts();
     expect(vwHops).toEqual(opHops);
@@ -211,7 +211,7 @@ test.describe.serial("saved-views (#12) — share-with-role round trip", () => {
     await loginViaForm(page, VW.email, VW.password);
     await page.waitForURL((u) => !u.pathname.startsWith("/login"));
 
-    await page.goto(`/device/${CSG}`);
+    await page.goto(`/path/${CSG}`);
     await page.getByTestId("save-view-toggle").click();
     const options = await page
       .getByTestId("save-view-visibility")
@@ -226,7 +226,7 @@ test.describe.serial("saved-views (#12) — share-with-role round trip", () => {
     await loginViaForm(page, VW.email, VW.password);
     await page.waitForURL((u) => !u.pathname.startsWith("/login"));
 
-    await page.goto(`/device/${CSG}`);
+    await page.goto(`/path/${CSG}`);
     await expect(page.getByTestId("path-view")).toBeVisible();
 
     await page.getByTestId("save-view-toggle").click();
