@@ -106,6 +106,20 @@ export function MapClient({ sites }: Props) {
                     <li>RAN / access: {s.ran_count}</li>
                     <li>IP transport: {s.ip_count}</li>
                   </ul>
+                  <div className="mt-2 flex gap-2 text-xs">
+                    <Link
+                      href={`/devices?site=${encodeURIComponent(s.name)}`}
+                      className="text-blue-600 underline hover:text-blue-800"
+                    >
+                      Devices
+                    </Link>
+                    <a
+                      href={`?site=${encodeURIComponent(s.name)}`}
+                      className="text-indigo-600 underline hover:text-indigo-800"
+                    >
+                      Show topology
+                    </a>
+                  </div>
                 </div>
               </Popup>
             </CircleMarker>
