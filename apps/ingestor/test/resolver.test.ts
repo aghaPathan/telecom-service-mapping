@@ -204,6 +204,55 @@ describe("buildResolverConfig", () => {
   });
 });
 
+describe("ingest contract: resolver", () => {
+  it("rulePORT: priority type_column beats name_token", () => {
+    // type_code resolves to CORE (level 1); name token "IUPE" would resolve to UPE (level 2).
+    // type_column priority means CORE wins.
+    expect(resolveRole({ name: "XX-IUPE-01", type_code: "CORE" }, cfg)).toEqual({
+      role: "CORE",
+      level: 1,
+    });
+  });
+
+  it("rulePORT: priority name_token used when type_column is blank", () => {
+    // type_code is empty string → fall through to name_token → ICSG → CSG (level 3).
+    expect(resolveRole({ name: "XX-ICSG-01", type_code: "" }, cfg)).toEqual({
+      role: "CSG",
+      level: 3,
+    });
+  });
+
+  it("rulePORT: fallback to Unknown when both type_column and name_token miss", () => {
+    // Garbage name token + no type_code → Unknown at unknown_level.
+    expect(resolveRole({ name: "XX-ZZZZZ-01", type_code: "" }, cfg)).toEqual({
+      role: "Unknown",
+      level: 99,
+      unresolved_name_token: "ZZZZZ",
+    });
+  });
+
+  it("rulePORT: role present in role_codes but missing from hierarchy → Unknown (silent fallback documented)", () => {
+    // XGHOST maps to GhostRole in role_codes, but GhostRole is not in hierarchy.yaml levels.
+    // Should silently return Unknown rather than throwing.
+    const broken = buildResolverConfig(HIERARCHY, {
+      ...ROLES,
+      type_map: { ...ROLES.type_map, XGHOST: "GhostRole" },
+    });
+    expect(resolveRole({ name: "x", type_code: "XGHOST" }, broken)).toEqual({
+      role: "Unknown",
+      level: 99,
+    });
+  });
+
+  it("rulePORT: blank type_* falls back to name_token (covers V1 33% blank observation)", () => {
+    // 33% of live rows had blank type_a / type_b; resolver must use name_token in that case.
+    expect(resolveRole({ name: "E3773-ICOR-HU02", type_code: null }, cfg)).toEqual({
+      role: "CORE",
+      level: 1,
+    });
+  });
+});
+
 describe("loadResolverConfigFromDir", () => {
   const mkdir = (): string => mkdtempSync(path.join(tmpdir(), "resolver-"));
 
