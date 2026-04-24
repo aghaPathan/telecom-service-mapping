@@ -308,6 +308,18 @@ describe("ingest contract: resolver", () => {
     expect(sevenDigit.role).not.toBe("BusinessCustomer");
   });
 
+  it("rulePORT: RAN service code dictionary resolves known codes", () => {
+    // RGUF → "2G, 3G and FDD sharing the same BB" from ran_service_codes.yaml.
+    const withRan = buildResolverConfig(
+      { ...HIERARCHY, tag_map: {} },
+      { ...ROLES, type_map: { ...ROLES.type_map, RGUF: "RAN" } },
+      { RGUF: "2G, 3G and FDD sharing the same BB" },
+    );
+    const resolved = resolveRole({ name: "XX-RGUF-01", type_code: "RGUF" }, withRan);
+    expect(resolved.role).toBe("RAN");
+    expect(resolved.service_description).toBe("2G, 3G and FDD sharing the same BB");
+  });
+
   it("rulePORT: unresolved tokens rolled up to top-N", () => {
     // 5 ResolvedRole objects with three distinct unresolved tokens:
     //   "WLEF" × 3, "ZZZA" × 1, "ZZZB" × 1

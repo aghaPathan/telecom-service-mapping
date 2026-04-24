@@ -50,6 +50,12 @@ export type DeviceProps = {
   level?: number;
   /** Technology tags from hierarchy.yaml `tag_map`. Populated post-dedup. */
   tags?: string[];
+  /**
+   * Human-readable RAN service description from `config/ran_service_codes.yaml`.
+   * Populated post-dedup for devices whose raw type_code appears in the dictionary.
+   * Null/undefined when the code is not a RAN tech-type code.
+   */
+  service_description?: string | null;
 };
 
 export type LinkProps = {

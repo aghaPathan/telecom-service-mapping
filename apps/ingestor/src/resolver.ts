@@ -77,6 +77,32 @@ const RoleCodesSchema = z.object({
   vendor_aliases: z.record(z.string(), z.string()).optional().default({}),
 });
 
+const RanCodesSchema = z.object({ codes: z.record(z.string(), z.string()) });
+
+/**
+ * Load `<configDir>/ran_service_codes.yaml`. Returns empty object when the
+ * file is absent — the dictionary is optional enrichment, not a hard
+ * dependency. Throws only on malformed YAML or schema violations.
+ */
+export function loadRanServiceCodes(configDir: string): Record<string, string> {
+  const p = path.join(configDir, "ran_service_codes.yaml");
+  let text: string;
+  try {
+    text = readFileSync(p, "utf8");
+  } catch {
+    // File absent — not required.
+    return {};
+  }
+  const raw = parseYaml(text);
+  const result = RanCodesSchema.safeParse(raw);
+  if (!result.success) {
+    throw new Error(
+      `config/ran_service_codes.yaml invalid: ${summarize(result.error.issues)}`,
+    );
+  }
+  return result.data.codes;
+}
+
 export type HierarchyConfig = z.infer<typeof HierarchySchema>;
 export type RoleCodesConfig = z.infer<typeof RoleCodesSchema>;
 
@@ -106,6 +132,12 @@ export type ResolverConfig = {
    * Exposed on config for O(1) lookup during `resolveRole`.
    */
   tag_map: Record<string, string[]>;
+  /**
+   * RAN tech-type code → human-readable description, loaded from
+   * `config/ran_service_codes.yaml`. Empty object when the file is absent
+   * (optional enrichment — no hard dependency).
+   */
+  ran_service_codes: Record<string, string>;
 };
 
 export type DeviceRoleInput = {
@@ -131,11 +163,19 @@ export type ResolvedRole = {
    * Empty array when the resolved code has no tag_map entry.
    */
   tags: string[];
+  /**
+   * Human-readable description from `config/ran_service_codes.yaml` for RAN
+   * tech-type codes (e.g. "RGUF" → "2G, 3G and FDD sharing the same BB").
+   * Null when the raw code has no entry in the dictionary or when resolution
+   * did not go through a raw code (name_prefix branch, BusinessCustomer, etc.).
+   */
+  service_description?: string | null;
 };
 
 export function buildResolverConfig(
   hierarchy: HierarchyConfig,
   roles: RoleCodesConfig,
+  ranServiceCodes: Record<string, string> = {},
 ): ResolverConfig {
   const roleToLevel = new Map<string, number>();
   const roleToLabel = new Map<string, string>();
@@ -172,6 +212,7 @@ export function buildResolverConfig(
     hostname,
     vendor_aliases: roles.vendor_aliases,
     tag_map: hierarchy.tag_map ?? {},
+    ran_service_codes: ranServiceCodes,
   };
 }
 
@@ -270,7 +311,11 @@ function finalize(
     };
   }
   const tags = (rawCode !== null ? cfg.tag_map[rawCode] : undefined) ?? [];
-  return { role, level, tags };
+  const service_description =
+    rawCode !== null ? (cfg.ran_service_codes[rawCode] ?? null) : null;
+  const result: ResolvedRole = { role, level, tags };
+  if (service_description !== null) result.service_description = service_description;
+  return result;
 }
 
 /**
@@ -324,7 +369,8 @@ export function loadResolverConfigFromDir(configDir: string): ResolverConfig {
       `config/role_codes.yaml invalid: ${summarize(roles.error.issues)}`,
     );
   }
-  return buildResolverConfig(hierarchy.data, roles.data);
+  const ranServiceCodes = loadRanServiceCodes(configDir);
+  return buildResolverConfig(hierarchy.data, roles.data, ranServiceCodes);
 }
 
 function readAndParse(p: string): unknown {

@@ -185,6 +185,7 @@ export async function writeGraph(
           level: d.level ?? resolverCfg.hierarchy.unknown_level,
           site: parsed.site,
           tags: d.tags ?? [],
+          service_description: d.service_description ?? null,
         };
       });
       const session = driver.session();
@@ -193,14 +194,15 @@ export async function writeGraph(
           tx.run(
             `UNWIND $batch AS d
                MERGE (x:Device {name: d.name})
-               SET x.vendor = d.vendor,
-                   x.domain = d.domain,
-                   x.ip     = d.ip,
-                   x.mac    = d.mac,
-                   x.role   = d.role,
-                   x.level  = d.level,
-                   x.site   = d.site,
-                   x.tags   = d.tags,
+               SET x.vendor              = d.vendor,
+                   x.domain              = d.domain,
+                   x.ip                  = d.ip,
+                   x.mac                 = d.mac,
+                   x.role                = d.role,
+                   x.level               = d.level,
+                   x.site                = d.site,
+                   x.tags                = d.tags,
+                   x.service_description = d.service_description,
                    x:\`${role}\``,
             { batch: payload },
           ),

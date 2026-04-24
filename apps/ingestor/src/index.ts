@@ -200,6 +200,7 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       d.role = resolved.role;
       d.level = resolved.level;
       d.tags = resolved.tags;
+      d.service_description = resolved.service_description ?? null;
       allResolved.push(resolved);
       if (resolved.level === resolverCfg.hierarchy.unknown_level) {
         unresolvedCount += 1;
