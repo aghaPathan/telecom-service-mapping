@@ -1,5 +1,7 @@
 # Ingest Edge-Case Contract
 
+Last updated: 2026-04-24 (issue #59)
+
 This directory holds contract tests for the 31 V1 ingest-behavior rules that V2 must either replicate, correct, or deliberately reject. Every contract test title begins with a `rule[PORT|FIX|REJECT]:` prefix so a single grep produces a compliance matrix. Run the suite with `pnpm --filter ingestor test -- --run | grep 'rule[A-Z]'` to see which rules pass, which are pending, and whether any rule has silently lost coverage across refactors. Tests that cover rules deferred to later slices are not yet written; their rows use `—` in the Test file column. Later tasks (T2–T14) land the tests; Task 15 fills in the file column.
 
 ## Convention
@@ -22,24 +24,24 @@ pnpm --filter ingestor test -- --run | grep '\brule' | sort
 
 | # | Rule | Type | Status | Test file | Notes |
 |---|---|---|---|---|---|
-| 1 | null `device_b` rows dropped and counted | PORT | covered-in-this-pr | — | Part of LLDP 8-col dedup; T2 adds contract name |
-| 2 | self-loop rows dropped and counted | PORT | covered-in-this-pr | — | Same dedup pass; T2 adds contract name |
-| 3 | anomaly (>2 rows same canonical key) keeps latest `updated_at` | PORT | covered-in-this-pr | — | Same dedup pass; T2 adds contract name |
-| 4 | symmetric (both-direction) pair merged to one canonical link | PORT | covered-in-this-pr | — | V2 canonical pair; T2 adds contract name |
-| 5 | first-seen casing wins for device name | PORT | covered-in-this-pr | — | Dedup merge; T2 adds contract name |
-| 6 | first-non-null field merge (vendor / domain / ip / mac) | PORT | covered-in-this-pr | — | Dedup merge; T2 adds contract name |
-| 7 | single edge per A→B hop (simple DiGraph — no multi-edges) | PORT | covered-in-this-pr | — | Dedup standardises; T2 adds contract name |
-| 8 | resolver priority: `type_column` → name token → fallback | PORT | covered-in-this-pr | — | Resolver already tested; T3 adds contract name |
-| 9 | `Unknown` bucket for unmapped codes; blank `type_*` falls back to name-token | PORT | covered-in-this-pr | — | Covers V1's 33% blank observation + Unknown contract; T3 adds name |
-| 10 | role in `role_codes.yaml` but absent from `hierarchy.yaml` → Unknown (silent fallback) | PORT | covered-in-this-pr | — | T3 adds contract name |
-| 11 | name-prefix fallback (back-compat with legacy resolver path) | PORT | covered-in-this-pr | — | T3 adds contract name |
-| 12 | `wiconnect` → `wic` vendor alias (config-driven) | PORT | covered-in-this-pr | — | New `vendor_aliases` block in role_codes.yaml; T4 lands test |
-| 13 | `tag_map` multi-tech `tags[]` produced for matching devices; `tags: []` default when absent | PORT | covered-in-this-pr | — | New `tag_map` block in hierarchy.yaml; T5 lands test |
-| 14 | `status=false` LLDP rows excluded from active topology at source | PORT | covered-in-this-pr | — | Source SELECT WHERE; T7 lands test |
-| 15 | unresolved role tokens rolled up to top-N in `warnings_json` | PORT | covered-in-this-pr | — | Data-quality steward rule; T9 lands test |
-| 16 | 8-digit numeric node name classified as `BusinessCustomer` | PORT | covered-in-this-pr | — | Regex pre-check in resolver; T10 lands test |
-| 17 | RAN service code dictionary resolves 22 known codes | PORT | covered-in-this-pr | — | `config/ran_service_codes.yaml`; T12 lands test |
-| 18 | UPE neighbor suppression in topology rendering | PORT | covered-in-this-pr | — | Query/render layer filter; T3 or integration test adds contract name |
+| 1 | null `device_b` rows dropped and counted | PORT | covered-in-this-pr | `apps/ingestor/test/dedup.test.ts` | T2 added `rulePORT: null device_b rows dropped and counted` |
+| 2 | self-loop rows dropped and counted | PORT | covered-in-this-pr | `apps/ingestor/test/dedup.test.ts` | T2 added `rulePORT: self-loop rows dropped and counted` |
+| 3 | anomaly (>2 rows same canonical key) keeps latest `updated_at` | PORT | covered-in-this-pr | `apps/ingestor/test/dedup.test.ts` | T2 added `rulePORT: anomaly …` |
+| 4 | symmetric (both-direction) pair merged to one canonical link | PORT | covered-in-this-pr | `apps/ingestor/test/dedup.test.ts` | T2 added `rulePORT: symmetric …` |
+| 5 | first-seen casing wins for device name | PORT | covered-in-this-pr | `apps/ingestor/test/dedup.test.ts` | T2 added `rulePORT: first-seen casing wins` |
+| 6 | first-non-null field merge (vendor / domain / ip / mac) | PORT | covered-in-this-pr | `apps/ingestor/test/dedup.test.ts` | T2 added `rulePORT: first-non-null field merge` |
+| 7 | single edge per A→B hop (simple DiGraph — no multi-edges) | PORT | covered-in-this-pr | `apps/ingestor/test/dedup.test.ts` | T2 added `rulePORT: single edge per A→B hop` |
+| 8 | resolver priority: `type_column` → name token → fallback | PORT | covered-in-this-pr | `apps/ingestor/test/resolver.test.ts` | T3 added `rulePORT: priority type_column beats name_token` |
+| 9 | `Unknown` bucket for unmapped codes; blank `type_*` falls back to name-token | PORT | covered-in-this-pr | `apps/ingestor/test/resolver.test.ts` | T3 added `rulePORT: fallback to Unknown …` + `rulePORT: blank type_* falls back to name_token` |
+| 10 | role in `role_codes.yaml` but absent from `hierarchy.yaml` → Unknown (silent fallback) | PORT | covered-in-this-pr | `apps/ingestor/test/resolver.test.ts` | T3 added `rulePORT: role present in role_codes but missing from hierarchy → Unknown` |
+| 11 | name-prefix fallback (back-compat with legacy resolver path) | PORT | covered-in-this-pr | `apps/ingestor/test/resolver.test.ts` | T3 added `rulePORT: priority name_token used when type_column is blank` |
+| 12 | `wiconnect` → `wic` vendor alias (config-driven) | PORT | covered-in-this-pr | `apps/ingestor/test/dedup.test.ts` | T4 added `rulePORT: wiconnect → wic vendor alias` |
+| 13 | `tag_map` multi-tech `tags[]` produced for matching devices; `tags: []` default when absent | PORT | covered-in-this-pr | `apps/ingestor/test/resolver.test.ts` | T5 added `rulePORT: tag_map produces tags[]` + `rulePORT: device with no matching tag_map entry has tags: []` |
+| 14 | `status=false` LLDP rows excluded from active topology at source | PORT | covered-in-this-pr | `apps/ingestor/test/lldp-source.int.test.ts` | T7 added `rulePORT: status=false rows excluded at source` |
+| 15 | unresolved role tokens rolled up to top-N in `warnings_json` | PORT | covered-in-this-pr | `apps/ingestor/test/resolver.test.ts` | T9 added `rulePORT: unresolved tokens rolled up to top-N` |
+| 16 | 8-digit numeric node name classified as `BusinessCustomer` | PORT | covered-in-this-pr | `apps/ingestor/test/resolver.test.ts` | T10 added `rulePORT: 8-digit numeric node classified as BusinessCustomer` |
+| 17 | RAN service code dictionary resolves 22 known codes | PORT | covered-in-this-pr | `apps/ingestor/test/resolver.test.ts` | T12 added `rulePORT: RAN service code dictionary resolves known codes` |
+| 18 | UPE neighbor suppression in topology rendering | PORT | covered-in-this-pr | `apps/ingestor/test/resolver.test.ts`, `apps/ingestor/test/ingest.int.test.ts` | UPE role resolution covered in T3 (resolver); UPE devices written + labeled in integration test; render-layer clustering in `apps/web/test/cluster.test.ts` |
 | 19 | span name ` -  LD` / ` - NSR` suffix stripping (both branches) | PORT | deferred | — | Needs CID loader — deferred to #61 (Slice 4 DWDM) |
 | 20 | protection CID string `'nan'` → null | PORT | deferred | — | Needs CID loader — deferred to #61 (Slice 4 DWDM) |
 | 21 | `protection_cid` space-split → first CID for DWDM protection paths | PORT | deferred | — | Needs CID loader — deferred to #61 (Slice 4 DWDM) |
@@ -53,6 +55,10 @@ pnpm --filter ingestor test -- --run | grep '\brule' | sort
 | 29 | V1 ClickHouse wrapper silently zeroed `NaN`/empty/`'NIL'` — V2 must not zero nulls | FIX | covered-in-this-pr | `apps/web/test/format.test.ts`, `apps/ingestor/test/ingest.int.test.ts` | `formatNullable` helper (T13) covers UI null→dash; regression guard (T14) confirms null vendor stays null in Neo4j |
 | 30 | V1 `LoginMiddleware` bypassed `/performance`, `/tools`, `/event`, `/api` — V2 keeps middleware strict | REJECT | N/A | — | V2 auth middleware has no bypass; no code path to test; documented only |
 | 31 | V1 "alarms = node-is-up" inverted-liveness / SSH-from-web SAI Ping as production feature | REJECT | N/A | — | Two related PRD rejections; V2 treats alarms as alarms; SSH-from-web rejected (redesign as operator CLI outside V2 scope) |
+
+---
+
+**Covered in this PR: 19 rules (rules 1–18, 29). Deferred: 8 (rules 19–23, 26–28, see table). N/A: 4 (rules 24, 25, 30, 31). Total: 31.**
 
 ---
 
