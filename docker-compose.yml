@@ -84,6 +84,11 @@ services:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
       PORT: "3000"
+      # role-allowlist reads config/hierarchy.yaml to validate /summary/[role]
+      # and /analytics?role=... inputs. Must match the ingestor's mount.
+      RESOLVER_CONFIG_DIR: /app/config
+    volumes:
+      - ./config:/app/config:ro
     depends_on:
       neo4j:
         condition: service_healthy
