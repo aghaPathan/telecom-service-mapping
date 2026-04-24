@@ -5,6 +5,7 @@ import {
   getIngestionStatus,
   type Freshness,
 } from "@/lib/ingestion";
+import { formatNullable } from "@/lib/format";
 
 const COLOR: Record<Freshness, string> = {
   fresh: "bg-emerald-100 text-emerald-900 ring-emerald-300",
@@ -21,8 +22,8 @@ export async function FreshnessBadge() {
     const finishedAt = latest?.finished_at ?? null;
     freshness = classifyFreshness(finishedAt);
     if (latest && finishedAt) {
-      const devices = graph?.devices ?? latest.graph_nodes_written ?? 0;
-      const links = graph?.links ?? latest.graph_edges_written ?? 0;
+      const devices = graph?.devices ?? formatNullable(latest.graph_nodes_written);
+      const links = graph?.links ?? formatNullable(latest.graph_edges_written);
       label = `Last refresh: ${formatAge(finishedAt)} · ${devices} devices · ${links} links`;
     }
   } catch {

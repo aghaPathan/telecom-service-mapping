@@ -8,6 +8,7 @@ import {
 } from "@/lib/device-list";
 import { tryConsume } from "@/lib/rate-limit";
 import { csvRow, sanitizeFilename } from "@/lib/csv";
+import { formatNullable } from "@/lib/format";
 import { log } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
@@ -104,7 +105,7 @@ export async function GET(req: NextRequest) {
   const body = rows
     .map((r) =>
       includeFanout
-        ? csvRow([r.name, r.role, r.level, r.site, r.vendor, r.fanout ?? 0])
+        ? csvRow([r.name, r.role, r.level, r.site, r.vendor, formatNullable(r.fanout, "")])
         : csvRow([r.name, r.role, r.level, r.site, r.vendor]),
     )
     .join("\n");
