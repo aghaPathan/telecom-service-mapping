@@ -53,7 +53,11 @@ export const ImpactResponse = z.discriminatedUnion("status", [
 ]);
 export type ImpactResponse = z.infer<typeof ImpactResponse>;
 
-export async function runImpact(q: ImpactQuery): Promise<ImpactResponse> {
+export async function runImpact(
+  q: ImpactQuery,
+  opts: { hardCap?: number } = {},
+): Promise<ImpactResponse> {
+  const hardCap = opts.hardCap ?? HARD_CAP;
   const driver = getDriver();
   const session = driver.session({ defaultAccessMode: "READ" });
   try {
@@ -114,7 +118,7 @@ export async function runImpact(q: ImpactQuery): Promise<ImpactResponse> {
     );
     const total = rows.length;
 
-    if (total > HARD_CAP) {
+    if (total > hardCap) {
       return { status: "too_large", start, total, summary };
     }
     return { status: "ok", start, total, summary, rows };

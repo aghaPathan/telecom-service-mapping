@@ -176,6 +176,18 @@ describe("runImpact against live Neo4j", () => {
     expect(res.status).toBe("start_not_found");
   });
 
+  it("returns too_large when total exceeds hardCap", async () => {
+    const { runImpact } = await import("@/lib/impact");
+    const res = await runImpact(
+      { device: "I5-UPE1", max_depth: 10, include_transport: true },
+      { hardCap: 2 },
+    );
+    expect(res.status).toBe("too_large");
+    if (res.status !== "too_large") throw new Error("unreachable");
+    expect(res.total).toBeGreaterThan(2);
+    expect(res.summary.length).toBeGreaterThan(0);
+  });
+
   it("returns total=0 ok for isolated node", async () => {
     const { runImpact } = await import("@/lib/impact");
     const res = await runImpact({
