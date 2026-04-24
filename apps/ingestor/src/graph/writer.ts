@@ -135,6 +135,9 @@ export async function writeGraph(
         "CREATE INDEX device_vendor IF NOT EXISTS FOR (d:Device) ON (d.vendor)",
       );
       await session.run(
+        "CREATE INDEX device_tags IF NOT EXISTS FOR (d:Device) ON (d.tags)",
+      );
+      await session.run(
         "CREATE INDEX service_mobily_cid IF NOT EXISTS FOR (s:Service) ON (s.mobily_cid)",
       );
       await session.run(
@@ -181,6 +184,7 @@ export async function writeGraph(
           role,
           level: d.level ?? resolverCfg.hierarchy.unknown_level,
           site: parsed.site,
+          tags: d.tags ?? [],
         };
       });
       const session = driver.session();
@@ -196,6 +200,7 @@ export async function writeGraph(
                    x.role   = d.role,
                    x.level  = d.level,
                    x.site   = d.site,
+                   x.tags   = d.tags,
                    x:\`${role}\``,
             { batch: payload },
           ),

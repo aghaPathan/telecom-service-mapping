@@ -48,6 +48,8 @@ export type DeviceProps = {
   role?: string;
   /** Hierarchy level for the resolved role. Populated post-dedup. */
   level?: number;
+  /** Technology tags from hierarchy.yaml `tag_map`. Populated post-dedup. */
+  tags?: string[];
 };
 
 export type LinkProps = {

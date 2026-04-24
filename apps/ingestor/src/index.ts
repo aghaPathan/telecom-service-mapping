@@ -198,6 +198,7 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       );
       d.role = resolved.role;
       d.level = resolved.level;
+      d.tags = resolved.tags;
       if (resolved.level === resolverCfg.hierarchy.unknown_level) {
         unresolvedCount += 1;
         const token = resolved.unresolved_name_token;

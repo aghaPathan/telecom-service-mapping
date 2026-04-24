@@ -487,6 +487,123 @@ describe("ingest integration (testcontainers)", () => {
     }
   });
 
+  it("ruleNEW: tags[] field persisted on Device nodes (empty when no tag_map match)", async () => {
+    // The fixture uses CORE/UPE/CSG/null type codes — none match tag_map entries
+    // (RGUF/RGUL/RGUX), so all devices get tags: []. This test proves the field
+    // is written to Neo4j; the non-empty case is covered by the next test.
+    // Must run BEFORE SW-leveling test which TRUNCATEs app_lldp.
+    await runIngest({
+      dryRun: false,
+      config: {
+        DATABASE_URL: appUrl,
+        DATABASE_URL_SOURCE: sourceUrl,
+        NEO4J_URI: neoUri,
+        NEO4J_USER: neoUser,
+        NEO4J_PASSWORD: neoPassword,
+      },
+    });
+
+    const driver = neo4j.driver(neoUri, neo4j.auth.basic(neoUser, neoPassword));
+    try {
+      const sess = driver.session();
+      try {
+        // All fixture devices should have tags property (empty array).
+        const nullTags = await sess.run(
+          "MATCH (d:Device) WHERE d.tags IS NULL RETURN count(d) AS c",
+        );
+        expect(nullTags.records[0]!.get("c").toNumber()).toBe(0);
+
+        const emptyTags = await sess.run(
+          "MATCH (d:Device {name: 'XX-AAA-CORE-01'}) RETURN d.tags AS tags",
+        );
+        expect(emptyTags.records).toHaveLength(1);
+        expect(emptyTags.records[0]!.get("tags")).toEqual([]);
+      } finally {
+        await sess.close();
+      }
+    } finally {
+      await driver.close();
+    }
+  });
+
+  it("ruleNEW: tags[] populated from tag_map when raw code matches", async () => {
+    // Custom config with a tag_map entry that maps test code TRGUF → RAN with
+    // tags [3G, 4G]. Seeding a device with that type_a code proves non-empty tags.
+    const cfgDir = mkdtempSync(path.join(tmpdir(), "tags-test-"));
+    writeFileSync(
+      path.join(cfgDir, "hierarchy.yaml"),
+      `levels:
+  - { level: 1, label: Core, roles: [CORE] }
+  - { level: 4, label: Access, roles: [RAN] }
+unknown_label: Unknown
+unknown_level: 99
+sw_dynamic_leveling:
+  enabled: false
+tag_map:
+  TRGUF: [3G, 4G]
+`,
+    );
+    writeFileSync(
+      path.join(cfgDir, "role_codes.yaml"),
+      `type_map:
+  TCOR: CORE
+  TRGUF: RAN
+name_prefix_map: {}
+fallback: Unknown
+resolver_priority: [type_column, name_prefix, fallback]
+`,
+    );
+
+    const sc = new pg.Client({ connectionString: sourceUrl });
+    await sc.connect();
+    try {
+      await sc.query("TRUNCATE app_lldp, app_cid, app_devicecid, app_sitesportal");
+      await sc.query(
+        `INSERT INTO app_lldp
+           (device_a_name, device_a_interface, device_b_name, device_b_interface,
+            type_a, type_b, updated_at, status)
+         VALUES
+           ('CORE-01', 'xe-1', 'RAN-01', 'xe-2', 'TCOR', 'TRGUF', now(), true)`,
+      );
+    } finally {
+      await sc.end();
+    }
+
+    await runIngest({
+      dryRun: false,
+      resolverConfigDir: cfgDir,
+      config: {
+        DATABASE_URL: appUrl,
+        DATABASE_URL_SOURCE: sourceUrl,
+        NEO4J_URI: neoUri,
+        NEO4J_USER: neoUser,
+        NEO4J_PASSWORD: neoPassword,
+      },
+    });
+
+    const driver = neo4j.driver(neoUri, neo4j.auth.basic(neoUser, neoPassword));
+    try {
+      const sess = driver.session();
+      try {
+        const ranTags = await sess.run(
+          "MATCH (d:Device {name: 'RAN-01'}) RETURN d.tags AS tags",
+        );
+        expect(ranTags.records).toHaveLength(1);
+        expect(ranTags.records[0]!.get("tags")).toEqual(["3G", "4G"]);
+
+        const coreTags = await sess.run(
+          "MATCH (d:Device {name: 'CORE-01'}) RETURN d.tags AS tags",
+        );
+        expect(coreTags.records).toHaveLength(1);
+        expect(coreTags.records[0]!.get("tags")).toEqual([]);
+      } finally {
+        await sess.close();
+      }
+    } finally {
+      await driver.close();
+    }
+  });
+
   it("SW dynamic-leveling post-pass re-levels based on topology", async () => {
     // Custom config: maps a test-only type code to SW/Ran/Customer so we can
     // drive topology without polluting repo config.
