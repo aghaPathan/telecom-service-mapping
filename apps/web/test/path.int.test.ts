@@ -114,7 +114,7 @@ afterAll(async () => {
 describe("runPath against live Neo4j", () => {
   it("device start traces to the core", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "device", value: "Customer" });
+    const r = await runPath({ kind: "device", value: "Customer", to: undefined });
     expect(r.status).toBe("ok");
     if (r.status !== "ok") throw new Error();
     expect(r.hops.map((h) => h.name)).toEqual(["Customer", "CSG", "UPE", "Core1"]);
@@ -123,7 +123,7 @@ describe("runPath against live Neo4j", () => {
 
   it("service start resolves to source endpoint and traces to the core", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "service", value: "C1" });
+    const r = await runPath({ kind: "service", value: "C1", to: undefined });
     expect(r.status).toBe("ok");
     if (r.status !== "ok") throw new Error();
     expect(r.hops[0]!.name).toBe("CSG");
@@ -132,7 +132,7 @@ describe("runPath against live Neo4j", () => {
 
   it("island device returns no_path with reason island", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "device", value: "Island" });
+    const r = await runPath({ kind: "device", value: "Island", to: undefined });
     expect(r.status).toBe("no_path");
     if (r.status !== "no_path") throw new Error();
     expect(r.reason).toBe("island");
@@ -143,7 +143,7 @@ describe("runPath against live Neo4j", () => {
 
   it("unknown device returns no_path with reason start_not_found", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "device", value: "GHOST-NO-SUCH" });
+    const r = await runPath({ kind: "device", value: "GHOST-NO-SUCH", to: undefined });
     expect(r.status).toBe("no_path");
     if (r.status !== "no_path") throw new Error();
     expect(r.reason).toBe("start_not_found");
@@ -152,7 +152,7 @@ describe("runPath against live Neo4j", () => {
 
   it("unknown service returns no_path with reason service_has_no_endpoint", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "service", value: "NO-SUCH-CID" });
+    const r = await runPath({ kind: "service", value: "NO-SUCH-CID", to: undefined });
     expect(r.status).toBe("no_path");
     if (r.status !== "no_path") throw new Error();
     expect(r.reason).toBe("service_has_no_endpoint");
@@ -160,7 +160,7 @@ describe("runPath against live Neo4j", () => {
 
   it("interface sanity: middle hop has both in_if and out_if, edges on ends are null", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "device", value: "Customer" });
+    const r = await runPath({ kind: "device", value: "Customer", to: undefined });
     expect(r.status).toBe("ok");
     if (r.status !== "ok") throw new Error();
     expect(r.hops[1]!.in_if).not.toBeNull();
@@ -180,7 +180,7 @@ describe("runPath against live Neo4j", () => {
 
   it("core device start returns zero-hop ok path with itself as the only hop", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "device", value: "Core1" });
+    const r = await runPath({ kind: "device", value: "Core1", to: undefined });
     expect(r.status).toBe("ok");
     if (r.status !== "ok") throw new Error();
     expect(r.length).toBe(0);
@@ -194,7 +194,7 @@ describe("runPath against live Neo4j", () => {
   it("picks min-weight path over min-hop when all edges are weighted", async () => {
     await seedWeighted(adminDriver);
     const { runPath } = await import("@/lib/path");
-    const res = await runPath({ kind: "device", value: "A" });
+    const res = await runPath({ kind: "device", value: "A", to: undefined });
     expect(res.status).toBe("ok");
     if (res.status !== "ok") return;
     expect(res.weighted).toBe(true);
@@ -214,7 +214,7 @@ describe("runPath against live Neo4j", () => {
       await s.close();
     }
     const { runPath } = await import("@/lib/path");
-    const res = await runPath({ kind: "device", value: "A" });
+    const res = await runPath({ kind: "device", value: "A", to: undefined });
     expect(res.status).toBe("ok");
     if (res.status !== "ok") return;
     expect(res.weighted).toBe(false);

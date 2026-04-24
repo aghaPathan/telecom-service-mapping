@@ -17,7 +17,7 @@ export default async function ServicePage({
   // Same-process direct call — no HTTP round-trip, no auth cookie needed.
   let result: PathResponse | null = null;
   try {
-    result = await runPath({ kind: "service", value: cid });
+    result = await runPath({ kind: "service", value: cid, to: undefined });
   } catch (err) {
     log("error", "path_page_failed", {
       error: err instanceof Error ? err.message : String(err),

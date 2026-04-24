@@ -19,7 +19,7 @@ export default async function PathDevicePage({
   // Diverges from app/device/[name] in task B3 (detail page); do not consolidate.
   let result: PathResponse | null = null;
   try {
-    result = await runPath({ kind: "device", value: name });
+    result = await runPath({ kind: "device", value: name, to: undefined });
   } catch (err) {
     log("error", "path_page_failed", {
       error: err instanceof Error ? err.message : String(err),

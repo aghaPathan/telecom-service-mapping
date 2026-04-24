@@ -55,9 +55,9 @@ describe("parseTopologyQuery", () => {
 
 describe("hopsToGraphDTO", () => {
   const hops: Hop[] = [
-    { name: "CUST", role: "Customer", level: 5, site: "S1", domain: null, in_if: null, out_if: "ge-0/0" },
-    { name: "CSG",  role: "CSG",      level: 3, site: "S1", domain: null, in_if: "ge-0/1", out_if: "xe-1" },
-    { name: "CORE", role: "CORE",     level: 1, site: "S2", domain: null, in_if: "xe-0", out_if: null },
+    { name: "CUST", role: "Customer", level: 5, site: "S1", domain: null, in_if: null, out_if: "ge-0/0", edge_weight_in: null },
+    { name: "CSG",  role: "CSG",      level: 3, site: "S1", domain: null, in_if: "ge-0/1", out_if: "xe-1", edge_weight_in: null },
+    { name: "CORE", role: "CORE",     level: 1, site: "S2", domain: null, in_if: "xe-0", out_if: null, edge_weight_in: null },
   ];
 
   it("emits one device node per hop and one edge per adjacent pair", () => {
