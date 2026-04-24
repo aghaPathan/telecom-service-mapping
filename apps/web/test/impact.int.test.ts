@@ -165,4 +165,28 @@ describe("runImpact against live Neo4j", () => {
     expect(res.rows.find((r) => r.name === "I5-MW1")).toBeDefined();
     expect(res.rows.find((r) => r.name === "I5-MW1")!.level).toBe(3.5);
   });
+
+  it("returns start_not_found for unknown device", async () => {
+    const { runImpact } = await import("@/lib/impact");
+    const res = await runImpact({
+      device: "I5-MISSING",
+      max_depth: 10,
+      include_transport: false,
+    });
+    expect(res.status).toBe("start_not_found");
+  });
+
+  it("returns total=0 ok for isolated node", async () => {
+    const { runImpact } = await import("@/lib/impact");
+    const res = await runImpact({
+      device: "I5-ISLAND",
+      max_depth: 10,
+      include_transport: false,
+    });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") throw new Error("unreachable");
+    expect(res.total).toBe(0);
+    expect(res.rows).toEqual([]);
+    expect(res.summary).toEqual([]);
+  });
 });
