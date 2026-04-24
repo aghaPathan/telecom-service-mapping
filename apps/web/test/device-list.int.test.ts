@@ -265,6 +265,61 @@ describe("runDeviceList against live Neo4j", () => {
     expect(r.rows[0]!.fanout!).toBeGreaterThanOrEqual(r.rows[1]!.fanout!);
   });
 
+  it("bySite=S-A returns only devices from site S-A", async () => {
+    const { runDeviceList, parseDeviceListQuery } = await import(
+      "@/lib/device-list"
+    );
+    const q = parseDeviceListQuery({ mode: "bySite", site: "S-A", pageSize: 100 });
+    const r = await runDeviceList(q);
+    // S-A devices: CORE1, UPE1, UPE4, SW1, GPON1, GPON2, CSG1, MW1, RAN1, RAN2 = 10
+    expect(r.total).toBe(10);
+    expect(r.rows).toHaveLength(10);
+    for (const row of r.rows) expect(row.site).toBe("S-A");
+  });
+
+  it("bySite=S-D returns only devices from site S-D", async () => {
+    const { runDeviceList, parseDeviceListQuery } = await import(
+      "@/lib/device-list"
+    );
+    const q = parseDeviceListQuery({ mode: "bySite", site: "S-D", pageSize: 100 });
+    const r = await runDeviceList(q);
+    // S-D devices: GPON7, GPON8, RAN5 = 3
+    expect(r.total).toBe(3);
+    expect(r.rows).toHaveLength(3);
+    for (const row of r.rows) expect(row.site).toBe("S-D");
+  });
+
+  it("bySite with a site that has no devices returns 0 rows", async () => {
+    const { runDeviceList, parseDeviceListQuery } = await import(
+      "@/lib/device-list"
+    );
+    const q = parseDeviceListQuery({ mode: "bySite", site: "NONEXISTENT" });
+    const r = await runDeviceList(q);
+    expect(r.total).toBe(0);
+    expect(r.rows).toHaveLength(0);
+  });
+
+  it("bySite pagination: total remains stable across pages", async () => {
+    const { runDeviceList, parseDeviceListQuery } = await import(
+      "@/lib/device-list"
+    );
+    const p1 = await runDeviceList(
+      parseDeviceListQuery({ mode: "bySite", site: "S-A", page: 1, pageSize: 5 }),
+    );
+    const p2 = await runDeviceList(
+      parseDeviceListQuery({ mode: "bySite", site: "S-A", page: 2, pageSize: 5 }),
+    );
+    // S-A has 10 devices; page 1 = 5 rows, page 2 = 5 rows, total = 10 both pages
+    expect(p1.total).toBe(10);
+    expect(p2.total).toBe(10);
+    expect(p1.rows).toHaveLength(5);
+    expect(p2.rows).toHaveLength(5);
+    // No overlap
+    const names1 = new Set(p1.rows.map((r) => r.name));
+    const names2 = new Set(p2.rows.map((r) => r.name));
+    for (const n of names2) expect(names1.has(n)).toBe(false);
+  });
+
   it("total matches filtered count regardless of page/pageSize", async () => {
     const { runDeviceList, parseDeviceListQuery } = await import(
       "@/lib/device-list"

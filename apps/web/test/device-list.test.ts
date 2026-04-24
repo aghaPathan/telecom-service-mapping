@@ -52,4 +52,40 @@ describe("parseDeviceListQuery", () => {
       }),
     ).toThrow();
   });
+
+  it("bySite parses correctly with defaults", () => {
+    const q = parseDeviceListQuery({ mode: "bySite", site: "JED" });
+    expect(q).toMatchObject({
+      mode: "bySite",
+      site: "JED",
+      page: 1,
+      pageSize: 50,
+      sort: "name",
+      dir: "asc",
+    });
+  });
+
+  it("bySite with explicit limit and offset", () => {
+    const q = parseDeviceListQuery({
+      mode: "bySite",
+      site: "JED",
+      pageSize: "100",
+      page: "2",
+    });
+    expect(q).toMatchObject({ mode: "bySite", site: "JED", pageSize: 100, page: 2 });
+  });
+
+  it("bySite rejects missing site", () => {
+    expect(() => parseDeviceListQuery({ mode: "bySite" })).toThrow();
+  });
+
+  it("bySite rejects empty site after trim", () => {
+    expect(() => parseDeviceListQuery({ mode: "bySite", site: "   " })).toThrow();
+  });
+
+  it("bySite rejects site exceeding max length", () => {
+    expect(() =>
+      parseDeviceListQuery({ mode: "bySite", site: "a".repeat(200) }),
+    ).toThrow();
+  });
 });
