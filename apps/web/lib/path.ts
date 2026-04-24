@@ -120,6 +120,7 @@ type PathEdge = {
   b: string; // end node name
   a_if: string | null;
   b_if: string | null;
+  weight: number | null;
 };
 
 function nodeToPathNode(n: Record<string, unknown>): PathNode {
@@ -138,6 +139,7 @@ function edgeToPathEdge(e: Record<string, unknown>): PathEdge {
     b: String(e.b),
     a_if: toStrOrNull(e.a_if),
     b_if: toStrOrNull(e.b_if),
+    weight: e.weight == null ? null : toNum(e.weight),
   };
 }
 
@@ -149,6 +151,14 @@ function deviceRefFrom(n: Record<string, unknown>): DeviceRef {
     site: toStrOrNull(n.site),
     domain: toStrOrNull(n.domain),
   };
+}
+
+function pickInboundWeight(
+  node: PathNode,
+  prev: PathEdge | null,
+): number | null {
+  if (!prev) return null;
+  return prev.weight;
 }
 
 /** Given a node at index `i` in the path and its surrounding edges, pick the
@@ -197,7 +207,9 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
         return {
           status: "ok",
           length: 0,
-          hops: [{ ...startDev, in_if: null, out_if: null }],
+          weighted: true,
+          total_weight: 0,
+          hops: [{ ...startDev, in_if: null, out_if: null, edge_weight_in: null }],
         };
       }
     } else {
@@ -232,24 +244,48 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
       }
     }
 
-    // 2. shortestPath under monotonic non-increasing level predicate to any
-    //    level-1 (Core) device. Traversed undirected (`-[:CONNECTS_TO]-`).
+    // 2. Enumerate all monotonic paths to any Core, compute weighted total per
+    //    candidate (null if ANY edge on that path lacks weight). If ANY
+    //    candidate in the set is partially weighted, the entire set falls back
+    //    to min-hop and total_weight is reported null; otherwise pick the
+    //    min-total-weight candidate. Traversal is undirected.
+    //    NOTE: full enumeration (not shortestPath) is required so a longer
+    //    fully-weighted path can outrank a shorter heavy one. Same perf class
+    //    as the island fallback below (see TODO #9-perf).
     const pathRes = await session.run(
       `MATCH (start:Device {name: $startName})
-       // Core tier is level 1 per config/hierarchy.yaml — terminator condition.
        MATCH (core:Device) WHERE core.level = 1
        WITH start, core
-       MATCH p = shortestPath((start)-[:CONNECTS_TO*1..${MAX_PATH_HOPS}]-(core))
+       MATCH p = (start)-[:CONNECTS_TO*1..${MAX_PATH_HOPS}]-(core)
        WHERE ALL(i IN range(0, length(p) - 1)
                  WHERE (nodes(p)[i]).level >= (nodes(p)[i + 1]).level)
-       RETURN [n IN nodes(p) | n { .name, .role, .level, .site, .domain }] AS pathNodes,
-              [r IN relationships(p) | {
+       WITH p,
+            [r IN relationships(p) | r.weight] AS ws,
+            length(p) AS hops
+       WITH p, hops,
+            CASE WHEN any(w IN ws WHERE w IS NULL)
+                 THEN null
+                 ELSE reduce(t = 0.0, w IN ws | t + w)
+            END AS total_weight
+       WITH collect({p: p, hops: hops, total_weight: total_weight}) AS cands
+       WITH cands, any(c IN cands WHERE c.total_weight IS NULL) AS anyUnweighted
+       UNWIND cands AS c
+       WITH c, anyUnweighted,
+            CASE WHEN anyUnweighted THEN null ELSE c.total_weight END AS effective_weight
+       RETURN [n IN nodes(c.p) | n { .name, .role, .level, .site, .domain }] AS pathNodes,
+              [r IN relationships(c.p) | {
                  a: startNode(r).name,
                  b: endNode(r).name,
                  a_if: r.a_if,
-                 b_if: r.b_if
-              }] AS pathEdges
-       ORDER BY length(p) ASC
+                 b_if: r.b_if,
+                 weight: r.weight
+              }] AS pathEdges,
+              effective_weight AS total_weight,
+              c.hops AS hops
+       ORDER BY
+         CASE WHEN total_weight IS NULL THEN 1 ELSE 0 END ASC,
+         total_weight ASC,
+         hops ASC
        LIMIT 1`,
       { startName },
     );
@@ -262,13 +298,27 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
       const pathEdges = (
         rec.get("pathEdges") as Array<Record<string, unknown>>
       ).map(edgeToPathEdge);
+      const totalWeightRaw = rec.get("total_weight");
+      const totalWeight = totalWeightRaw == null ? null : toNum(totalWeightRaw);
+      const weighted = totalWeight != null;
       const hops: Hop[] = pathNodes.map((n, i) => {
         const prev = i > 0 ? pathEdges[i - 1]! : null;
         const next = i < pathEdges.length ? pathEdges[i]! : null;
         const { in_if, out_if } = pickInOut(n, prev, next);
-        return { ...n, in_if, out_if };
+        return {
+          ...n,
+          in_if,
+          out_if,
+          edge_weight_in: weighted ? pickInboundWeight(n, prev) : null,
+        };
       });
-      return { status: "ok", length: pathEdges.length, hops };
+      return {
+        status: "ok",
+        length: pathEdges.length,
+        weighted,
+        total_weight: totalWeight,
+        hops,
+      };
     }
 
     // 3. No path to core. Find the deepest (lowest level) reachable device
