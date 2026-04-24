@@ -2,9 +2,10 @@ import type { Pool } from "pg";
 import cron from "node-cron";
 import { log } from "./logger.js";
 import { hasRunningRun, recordSkip } from "./runs.js";
+import { claimNextTrigger, attachRunToTrigger } from "./triggers.js";
 
 export type TickOutcome =
-  | { action: "ran" }
+  | { action: "ran"; runId: number | null; triggerId: number | null }
   | { action: "skipped"; reason: string; runId: number }
   | { action: "errored"; error: string };
 
@@ -13,14 +14,21 @@ export type TickOutcome =
  * unit tests can seed pg state and assert the branch taken without starting
  * real Neo4j / source connections.
  *
+ * `runFn` returns the `ingestion_runs.id` it wrote (or null for a no-op).
+ *
  * Decision:
- *   - a row with status='running' exists  → record a skip row + log, no runFn
- *   - otherwise                           → invoke runFn; surface errors but
- *                                           do NOT rethrow (cron must keep ticking)
+ *   - a row with status='running' exists  → record a skip row + log, no runFn,
+ *                                           pending trigger (if any) stays
+ *                                           unclaimed so the next tick picks it up
+ *   - otherwise                           → claim oldest pending trigger (if
+ *                                           any), invoke runFn, attach runId to
+ *                                           the claimed trigger. Errors are
+ *                                           surfaced but NOT rethrown (cron
+ *                                           must keep ticking).
  */
 export async function tickCron(
   pool: Pool,
-  runFn: () => Promise<void>,
+  runFn: () => Promise<number | null>,
 ): Promise<TickOutcome> {
   if (await hasRunningRun(pool)) {
     const reason = "prior run still in flight";
@@ -28,12 +36,20 @@ export async function tickCron(
     log("warn", "ingest_skipped_overlap", { runId, reason });
     return { action: "skipped", reason, runId };
   }
+  const trigger = await claimNextTrigger(pool);
   try {
-    await runFn();
-    return { action: "ran" };
+    const runId = await runFn();
+    if (runId !== null && trigger) {
+      await attachRunToTrigger(pool, trigger.id, runId);
+    }
+    return {
+      action: "ran",
+      runId,
+      triggerId: trigger?.id ?? null,
+    };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    log("error", "cron_run_failed", { error });
+    log("error", "cron_run_failed", { error, triggerId: trigger?.id ?? null });
     return { action: "errored", error };
   }
 }
@@ -45,7 +61,7 @@ export async function tickCron(
 export function startScheduler(opts: {
   cronExpr: string;
   pool: Pool;
-  runFn: () => Promise<void>;
+  runFn: () => Promise<number | null>;
 }): { stop: () => void } {
   if (!cron.validate(opts.cronExpr)) {
     throw new Error(`Invalid cron expression: ${opts.cronExpr}`);
