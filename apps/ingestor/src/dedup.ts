@@ -146,7 +146,35 @@ function canonicalize(row: RawLldpRow): CanonicalRow | null {
   };
 }
 
-export function dedupLldpRows(rows: readonly RawLldpRow[]): DedupResult {
+export type DedupOptions = {
+  /**
+   * Vendor alias map: raw vendor string (lowercase key) → canonical display
+   * name. Applied during device finalization so the stored vendor is already
+   * normalized. Example: `{ wiconnect: "wic" }` (V1 parity — IsolationSummary
+   * normalized "wiconnect" display to "wic").
+   *
+   * Lookup is case-insensitive: `raw.toLowerCase()` is matched against keys.
+   */
+  vendorAliases?: Record<string, string>;
+};
+
+/**
+ * Apply vendor alias normalization. Lookup is case-insensitive on the raw
+ * value; the returned value is whatever the alias map contains.
+ */
+function applyVendorAlias(
+  raw: string | null,
+  aliases: Record<string, string>,
+): string | null {
+  if (raw === null) return null;
+  return aliases[raw.toLowerCase()] ?? raw;
+}
+
+export function dedupLldpRows(
+  rows: readonly RawLldpRow[],
+  opts: DedupOptions = {},
+): DedupResult {
+  const vendorAliases = opts.vendorAliases ?? {};
   const dropped = { null_b: 0, self_loop: 0, anomaly: 0 };
   const groups = new Map<string, CanonicalRow[]>();
 
@@ -188,11 +216,19 @@ export function dedupLldpRows(rows: readonly RawLldpRow[]): DedupResult {
     const k = name.toLowerCase();
     const prev = deviceMap.get(k);
     if (!prev) {
-      deviceMap.set(k, { name, vendor, domain, ip, mac, type_code });
+      deviceMap.set(k, {
+        name,
+        vendor: applyVendorAlias(vendor, vendorAliases),
+        domain,
+        ip,
+        mac,
+        type_code,
+      });
       return;
     }
     // First-seen casing wins; properties prefer first non-null.
-    prev.vendor = firstNonNull(prev.vendor, vendor);
+    // Apply alias on merge too so a second-seen vendor is also normalized.
+    prev.vendor = firstNonNull(prev.vendor, applyVendorAlias(vendor, vendorAliases));
     prev.domain = firstNonNull(prev.domain, domain);
     prev.ip = firstNonNull(prev.ip, ip);
     prev.mac = firstNonNull(prev.mac, mac);

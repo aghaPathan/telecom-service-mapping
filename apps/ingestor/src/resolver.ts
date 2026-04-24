@@ -55,6 +55,12 @@ const RoleCodesSchema = z.object({
   resolver_priority: z
     .array(z.enum(["type_column", "name_prefix", "name_token", "fallback"]))
     .default(["type_column", "name_token", "fallback"]),
+  /**
+   * Vendor alias map (V1 parity): raw vendor string → canonical display name.
+   * Applied during dedup so the stored vendor is already normalized.
+   * Lookup is case-insensitive (raw.toLowerCase() matched against keys).
+   */
+  vendor_aliases: z.record(z.string(), z.string()).optional().default({}),
 });
 
 export type HierarchyConfig = z.infer<typeof HierarchySchema>;
@@ -76,6 +82,11 @@ export type ResolverConfig = {
    * default), vendor+serial at the next index.
    */
   hostname: HostnameParseConfig;
+  /**
+   * Vendor alias map from role_codes.yaml `vendor_aliases`. Exposed here so
+   * callers (e.g. `runIngest`) can pass it straight to `dedupLldpRows`.
+   */
+  vendor_aliases: Record<string, string>;
 };
 
 export type DeviceRoleInput = {
@@ -126,7 +137,15 @@ export function buildResolverConfig(
     role_map: roles.name_token?.map ?? {},
     vendor_token_map: roles.vendor_token_map,
   };
-  return { hierarchy, roles, roleToLevel, roleToLabel, prefixes, hostname };
+  return {
+    hierarchy,
+    roles,
+    roleToLevel,
+    roleToLabel,
+    prefixes,
+    hostname,
+    vendor_aliases: roles.vendor_aliases,
+  };
 }
 
 /**

@@ -108,3 +108,10 @@ resolver_priority:
   - type_column
   - name_token
   - fallback
+
+# Vendor alias map (V1 parity): raw vendor string → canonical display name.
+# The ingestor applies these during dedup so that the stored vendor property
+# is already normalized before being written to Neo4j.
+# Lookup is case-insensitive (raw.toLowerCase() is matched against keys).
+vendor_aliases:
+  wiconnect: wic

@@ -242,4 +242,15 @@ describe("ingest contract: dedup", () => {
     const r = dedupLldpRows(input);
     expect(r.links).toHaveLength(1);
   });
+
+  it("rulePORT: wiconnect → wic vendor alias", () => {
+    // V1 parity: IsolationSummary normalized "wiconnect" display to "wic".
+    // The alias lookup is case-insensitive; the stored value is whatever the
+    // yaml says ("wic").
+    const input = [makeRow("XX-CORE-01", "XX-AGG-01", { vendor_a: "wiconnect" })];
+    const aliases: Record<string, string> = { wiconnect: "wic" };
+    const r = dedupLldpRows(input, { vendorAliases: aliases });
+    const core = r.devices.find((d) => d.name === "XX-CORE-01");
+    expect(core?.vendor).toBe("wic");
+  });
 });
