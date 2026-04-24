@@ -64,6 +64,17 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    # Healthcheck inspects the most recent ingestion_runs row: no rows, a
+    # running row, or a succeeded row → healthy. A failed row → unhealthy.
+    # In smoke mode ingestor exits 0 before any healthcheck fires — callers
+    # that depend on "ingest ran at least once" still use service_started
+    # (see web.depends_on.ingestor below).
+    healthcheck:
+      test: ["CMD", "node", "dist/scripts/healthcheck.js"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
 
   web:
     build:
