@@ -32,6 +32,20 @@ const HierarchySchema = z.object({
   sw_dynamic_leveling: z
     .object({ enabled: z.boolean().default(true) })
     .default({ enabled: true }),
+  /**
+   * Multi-label classification map keyed by RAW role code (from type_map or
+   * name_token.map). A device whose resolved code appears here gets the listed
+   * technology tags attached. Using the raw code (e.g. "RGUF") rather than the
+   * resolved role ("RAN") lets a single raw code contribute to multiple tags
+   * even when two raw codes share a resolved role.
+   *
+   * Example: `RGUF: [3G, 4G]` — a RGUF device counts against both 3G and 4G
+   * even though it resolves to the same "RAN" role as R4GN.
+   */
+  tag_map: z
+    .record(z.string(), z.array(z.string().min(1)).min(1))
+    .optional()
+    .default({}),
 });
 
 const NameTokenSchema = z.object({
@@ -87,6 +101,11 @@ export type ResolverConfig = {
    * callers (e.g. `runIngest`) can pass it straight to `dedupLldpRows`.
    */
   vendor_aliases: Record<string, string>;
+  /**
+   * Technology tag map from hierarchy.yaml `tag_map`. Raw role code → tags[].
+   * Exposed on config for O(1) lookup during `resolveRole`.
+   */
+  tag_map: Record<string, string[]>;
 };
 
 export type DeviceRoleInput = {
@@ -105,6 +124,13 @@ export type ResolvedRole = {
    * not run (earlier step resolved, or step disabled).
    */
   unresolved_name_token?: string | null;
+  /**
+   * Technology tags derived from `hierarchy.yaml` `tag_map`. Keyed by the raw
+   * role code that resolved this device (e.g. "RGUF"), so a single raw code
+   * can contribute to multiple tags even if two codes share a resolved role.
+   * Empty array when the resolved code has no tag_map entry.
+   */
+  tags: string[];
 };
 
 export function buildResolverConfig(
@@ -145,6 +171,7 @@ export function buildResolverConfig(
     prefixes,
     hostname,
     vendor_aliases: roles.vendor_aliases,
+    tag_map: hierarchy.tag_map ?? {},
   };
 }
 
@@ -162,11 +189,12 @@ export function resolveRole(
       const code = input.type_code?.trim();
       if (code) {
         const mapped = cfg.roles.type_map[code];
-        if (mapped) return finalize(mapped, cfg);
+        if (mapped) return finalize(mapped, code, cfg);
       }
     } else if (step === "name_prefix") {
       for (const { prefix, role } of cfg.prefixes) {
-        if (input.name.startsWith(prefix)) return finalize(role, cfg);
+        // name_prefix doesn't have a raw code concept — no tag_map lookup.
+        if (input.name.startsWith(prefix)) return finalize(role, null, cfg);
       }
     } else if (step === "name_token") {
       const nt = cfg.roles.name_token;
@@ -174,7 +202,8 @@ export function resolveRole(
         const token = input.name.split(nt.separator)[nt.index];
         if (token !== undefined && token.length > 0) {
           const mapped = nt.map[token];
-          if (mapped) return finalize(mapped, cfg);
+          // tag_map lookup uses the name token as the raw code key.
+          if (mapped) return finalize(mapped, token, cfg);
           unresolvedToken = token;
         }
       }
@@ -193,12 +222,22 @@ function unknown(
   const result: ResolvedRole = {
     role: cfg.hierarchy.unknown_label,
     level: cfg.hierarchy.unknown_level,
+    tags: [],
   };
   if (unresolvedToken !== null) result.unresolved_name_token = unresolvedToken;
   return result;
 }
 
-function finalize(role: string, cfg: ResolverConfig): ResolvedRole {
+function finalize(
+  role: string,
+  /**
+   * Raw code that resolved to this role: the type_map key (e.g. "RGUF") or the
+   * name_token string. Used for `tag_map` lookup. Null for name_prefix matches
+   * where there's no single raw code concept.
+   */
+  rawCode: string | null,
+  cfg: ResolverConfig,
+): ResolvedRole {
   const level = cfg.roleToLevel.get(role);
   if (level === undefined) {
     // Role referenced by role_codes.yaml but not defined in hierarchy.yaml.
@@ -207,9 +246,11 @@ function finalize(role: string, cfg: ResolverConfig): ResolvedRole {
     return {
       role: cfg.hierarchy.unknown_label,
       level: cfg.hierarchy.unknown_level,
+      tags: [],
     };
   }
-  return { role, level };
+  const tags = (rawCode !== null ? cfg.tag_map[rawCode] : undefined) ?? [];
+  return { role, level, tags };
 }
 
 /**
