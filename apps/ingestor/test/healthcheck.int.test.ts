@@ -101,6 +101,16 @@ describe("healthcheck script (dist/scripts/healthcheck.js)", () => {
     expect(r.code).toBe(0);
   });
 
+  it("exit 1 when a running run is stuck >2h (hung detection)", async () => {
+    await pool.query(
+      `INSERT INTO ingestion_runs (status, dry_run, started_at)
+       VALUES ('running', false, now() - interval '3 hours')`,
+    );
+    const r = await runHealthcheck(databaseUrl);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/stuck in 'running'/);
+  });
+
   it("exit 1 when last run is failed", async () => {
     await pool.query(
       `INSERT INTO ingestion_runs (status, dry_run, finished_at, error_text)

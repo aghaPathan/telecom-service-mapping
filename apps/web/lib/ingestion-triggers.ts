@@ -8,10 +8,19 @@ export async function createTrigger(userId: string): Promise<number> {
   return Number(rows[0]!.id);
 }
 
+const RUN_STATUSES = ["pending", "running", "succeeded", "failed"] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+function coerceStatus(raw: string | null): RunStatus {
+  return (RUN_STATUSES as readonly string[]).includes(raw ?? "")
+    ? (raw as RunStatus)
+    : "pending";
+}
+
 export type TriggerStatus = {
   trigger_id: number;
   run_id: number | null;
-  status: "pending" | "running" | "succeeded" | "failed";
+  status: RunStatus;
 };
 
 export async function getTriggerStatus(
@@ -30,9 +39,13 @@ export async function getTriggerStatus(
   );
   if (rows.length === 0) return null;
   const row = rows[0]!;
-  return {
-    trigger_id: Number(row.id),
-    run_id: row.run_id === null ? null : Number(row.run_id),
-    status: (row.run_status ?? "pending") as TriggerStatus["status"],
-  };
+  const runId = row.run_id === null ? null : Number(row.run_id);
+  // Orphan case: run_id is set but the run row was deleted (run_status is
+  // null despite the LEFT JOIN resolving). Report as `failed` so the
+  // polling client exits instead of waiting out its 120s timeout.
+  const status: RunStatus =
+    runId !== null && row.run_status === null
+      ? "failed"
+      : coerceStatus(row.run_status);
+  return { trigger_id: Number(row.id), run_id: runId, status };
 }

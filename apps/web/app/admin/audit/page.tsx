@@ -51,6 +51,10 @@ export default async function AdminAuditPage({
   const limit = 20;
   const offset = (pageNum - 1) * limit;
   const { where, params } = buildWhere(searchParams);
+  // `limit` is a hardcoded constant and `offset` is derived from a
+  // `Math.max`-clamped `Number(searchParams.page)` so both are safe
+  // integers. If you ever make either configurable from user input,
+  // parameterize them instead of interpolating.
   const { rows } = await getPool().query<Row>(
     `SELECT a.id, a.action, a.target, a.at, u.email
        FROM audit_log a
