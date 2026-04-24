@@ -22,6 +22,10 @@ export default defineWorkspace([
   },
   {
     resolve: { alias },
+    // `page.tsx` integration tests render server components via
+    // renderToStaticMarkup, so the integration project also needs the
+    // automatic-jsx transform (page modules carry JSX).
+    esbuild: { jsx: "automatic" as const },
     test: {
       name: "integration",
       environment: "node",

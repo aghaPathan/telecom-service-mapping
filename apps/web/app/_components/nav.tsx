@@ -16,6 +16,7 @@ const ROW1 = [
 
 const ROW2_ADMIN = [
   { href: "/admin/users", label: "Users" },
+  { href: "/admin/ingestion", label: "Ingestion" },
   { href: "/admin/audit", label: "Audit" },
 ];
 

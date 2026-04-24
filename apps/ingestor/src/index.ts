@@ -362,8 +362,9 @@ async function runScheduled(): Promise<void> {
   let handle: { stop: () => void } | null = null;
   try {
     await migrate(config.DATABASE_URL);
-    const runFn = async (): Promise<void> => {
-      await runIngest({ dryRun: false, config });
+    const runFn = async (): Promise<number | null> => {
+      const result = await runIngest({ dryRun: false, config });
+      return result.runId;
     };
     log("info", "ingestor_cron_mode", { cron: config.INGEST_CRON });
     // Initial run on boot so the graph is populated immediately; the shared

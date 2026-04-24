@@ -64,6 +64,14 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    # Note: we intentionally do NOT wire `dist/scripts/healthcheck.js` as a
+    # container-level `healthcheck` here. `docker compose up --wait` (used
+    # in CI) either rejects exited containers as unhealthy (smoke mode) or
+    # rejects services with no healthcheck at all, so there's no overlay
+    # that makes both paths green. The script lives at
+    # `apps/ingestor/scripts/healthcheck.ts` and is still the intended
+    # probe for operators / external monitoring; a future prod-only overlay
+    # can wire it in without affecting CI.
 
   web:
     build:

@@ -1,15 +1,22 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/rbac";
 import { recordAudit } from "@/lib/audit";
+import { createTrigger } from "@/lib/ingestion-triggers";
 
 /**
- * Manual ingest trigger — admin-only. `requireRole("admin")` redirects
- * anonymous callers to /login (via middleware) and throws a 403 Response
- * for insufficient role. Actual job enqueue is still TODO(#13).
+ * Manual ingest trigger — admin-only. Inserts an `ingestion_triggers` row;
+ * the ingestor's cron tick (see `apps/ingestor/src/cron.ts`) claims the row
+ * on its next firing and writes `ingestion_runs.id` back. Poll `/api/ingestion/run/[id]`
+ * to follow the run.
  */
 export async function POST() {
   const session = await requireRole("admin");
-  await recordAudit(session.user.id, "ingestion_run_triggered", null, {});
-  // TODO(#13): actually enqueue a run via trigger row / queue.
-  return NextResponse.json({ status: "queued" });
+  const triggerId = await createTrigger(session.user.id);
+  await recordAudit(
+    session.user.id,
+    "ingestion_run_triggered",
+    String(triggerId),
+    {},
+  );
+  return NextResponse.json({ trigger_id: triggerId }, { status: 201 });
 }

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   GenericContainer,
   Wait,
@@ -36,6 +36,12 @@ describe("cron tick (skip-when-overlapping)", () => {
     )}/app`;
     await migrate(url);
     pool = new Pool({ connectionString: url, max: 2 });
+    // Seed a user so ingestion_triggers.requested_by FK is satisfiable.
+    await pool.query(
+      `INSERT INTO users (id, email, password_hash, role)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'a@b.c', 'x', 'admin')
+       ON CONFLICT DO NOTHING`,
+    );
   }, 120_000);
 
   afterAll(async () => {
@@ -44,23 +50,25 @@ describe("cron tick (skip-when-overlapping)", () => {
   }, 30_000);
 
   it("runs when no prior run is in flight", async () => {
-    await pool.query("TRUNCATE ingestion_runs RESTART IDENTITY");
+    await pool.query("TRUNCATE ingestion_runs RESTART IDENTITY CASCADE");
     let ran = false;
     const outcome = await tickCron(pool, async () => {
       ran = true;
+      return null;
     });
     expect(outcome.action).toBe("ran");
     expect(ran).toBe(true);
   });
 
   it("skips and records a skip row when a prior run is still 'running'", async () => {
-    await pool.query("TRUNCATE ingestion_runs RESTART IDENTITY");
+    await pool.query("TRUNCATE ingestion_runs RESTART IDENTITY CASCADE");
     // Simulate a prior run that never finished.
     const runningId = await startRun(pool, { dryRun: false });
 
     let ran = false;
     const outcome = await tickCron(pool, async () => {
       ran = true;
+      return null;
     });
 
     expect(ran).toBe(false);
@@ -87,7 +95,7 @@ describe("cron tick (skip-when-overlapping)", () => {
   });
 
   it("resumes running after the prior row closes out", async () => {
-    await pool.query("TRUNCATE ingestion_runs RESTART IDENTITY");
+    await pool.query("TRUNCATE ingestion_runs RESTART IDENTITY CASCADE");
     const priorId = await startRun(pool, { dryRun: false });
     await finishRun(pool, priorId, {
       status: "succeeded",
@@ -108,19 +116,68 @@ describe("cron tick (skip-when-overlapping)", () => {
     let ran = false;
     const outcome = await tickCron(pool, async () => {
       ran = true;
+      return null;
     });
     expect(outcome.action).toBe("ran");
     expect(ran).toBe(true);
   });
 
   it("surfaces but does not rethrow errors from the runFn", async () => {
-    await pool.query("TRUNCATE ingestion_runs RESTART IDENTITY");
-    const outcome = await tickCron(pool, async () => {
+    await pool.query("TRUNCATE ingestion_runs RESTART IDENTITY CASCADE");
+    const outcome = await tickCron(pool, async (): Promise<number | null> => {
       throw new Error("source unreachable");
     });
     expect(outcome.action).toBe("errored");
     if (outcome.action === "errored") {
       expect(outcome.error).toBe("source unreachable");
     }
+  });
+
+  it("tickCron claims a pending trigger and attaches run_id when runFn succeeds", async () => {
+    await pool.query(`TRUNCATE ingestion_triggers RESTART IDENTITY`);
+    await pool.query(`TRUNCATE ingestion_runs RESTART IDENTITY CASCADE`);
+    await pool.query(
+      `INSERT INTO ingestion_triggers (requested_by) VALUES
+       ('00000000-0000-0000-0000-000000000001')`,
+    );
+    const runFn = vi.fn(async (): Promise<number | null> => {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO ingestion_runs (status, dry_run) VALUES ('succeeded', false) RETURNING id`,
+      );
+      return Number(rows[0]!.id);
+    });
+    const outcome = await tickCron(pool, runFn);
+    expect(outcome.action).toBe("ran");
+    expect(runFn).toHaveBeenCalledOnce();
+    const { rows } = await pool.query<{
+      run_id: string | null;
+      claimed_at: string | null;
+    }>(
+      `SELECT run_id, claimed_at FROM ingestion_triggers WHERE id=1`,
+    );
+    expect(rows[0]!.run_id).not.toBeNull();
+    expect(rows[0]!.claimed_at).not.toBeNull();
+  });
+
+  it("tickCron leaves trigger unclaimed when a run is already running", async () => {
+    await pool.query(`TRUNCATE ingestion_triggers RESTART IDENTITY`);
+    await pool.query(`TRUNCATE ingestion_runs RESTART IDENTITY CASCADE`);
+    await pool.query(
+      `INSERT INTO ingestion_runs (status, dry_run) VALUES ('running', false)`,
+    );
+    await pool.query(
+      `INSERT INTO ingestion_triggers (requested_by) VALUES
+       ('00000000-0000-0000-0000-000000000001')`,
+    );
+    const runFn = vi.fn(
+      async (): Promise<number | null> => 0,
+    );
+    const outcome = await tickCron(pool, runFn);
+    expect(outcome.action).toBe("skipped");
+    expect(runFn).not.toHaveBeenCalled();
+    const { rows } = await pool.query<{ claimed_at: string | null }>(
+      `SELECT claimed_at FROM ingestion_triggers WHERE id=1`,
+    );
+    expect(rows[0]!.claimed_at).toBeNull();
   });
 });
