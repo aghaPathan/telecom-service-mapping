@@ -105,7 +105,12 @@ describe("/analytics page", () => {
     });
     const el = await Page({ searchParams: {} });
     const html = renderToStaticMarkup(el as React.ReactElement);
-    expect(html).toMatch(/<input[^>]*name="role"[^>]*type="text"/);
-    expect(html).toMatch(/<input[^>]*name="limit"[^>]*min="1"[^>]*max="200"/);
+    const roleInput = html.match(/<input[^>]*name="role"[^>]*\/>/);
+    expect(roleInput).not.toBeNull();
+    expect(roleInput![0]).toContain(`type="text"`);
+    const limitInput = html.match(/<input[^>]*name="limit"[^>]*\/>/);
+    expect(limitInput).not.toBeNull();
+    expect(limitInput![0]).toContain(`min="1"`);
+    expect(limitInput![0]).toContain(`max="200"`);
   });
 });
