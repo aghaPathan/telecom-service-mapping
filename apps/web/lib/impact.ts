@@ -53,7 +53,82 @@ export const ImpactResponse = z.discriminatedUnion("status", [
 ]);
 export type ImpactResponse = z.infer<typeof ImpactResponse>;
 
-// runImpact stub — body lands in Task 2 driven by the integration test.
-export async function runImpact(_q: ImpactQuery): Promise<ImpactResponse> {
-  throw new Error("runImpact: not implemented");
+export async function runImpact(q: ImpactQuery): Promise<ImpactResponse> {
+  const driver = getDriver();
+  const session = driver.session({ defaultAccessMode: "READ" });
+  try {
+    const startRes = await session.run(
+      `MATCH (d:Device {name:$name})
+       RETURN d { .name, .role, .level } AS node`,
+      { name: q.device },
+    );
+    if (startRes.records.length === 0) return { status: "start_not_found" };
+    const startNode = startRes.records[0]!.get("node") as Record<string, unknown>;
+    const start = {
+      name: String(startNode.name),
+      role: String(startNode.role ?? "Unknown"),
+      level: toNum(startNode.level ?? 0),
+    };
+
+    const maxDepth = q.max_depth;
+    // Shortest strictly-increasing path per dst, so `hops` is deterministic.
+    // The WHERE after DISTINCT keeps MW out of the projection when
+    // include_transport is false — matching runDownstream semantics.
+    // maxDepth is zod-validated int; safe to interpolate (Neo4j refuses
+    // parameters inside variable-length bounds — see runDownstream).
+    const rowsRes = await session.run(
+      `MATCH p = shortestPath(
+         (start:Device {name:$name})-[:CONNECTS_TO*1..${maxDepth}]-(dst:Device)
+       )
+       WHERE start <> dst
+         AND ALL(i IN range(0, length(p)-1)
+                 WHERE nodes(p)[i].level < nodes(p)[i+1].level)
+       WITH DISTINCT dst, length(p) AS hops
+       WHERE $include_transport OR dst.level <> 3.5
+       RETURN dst { .name, .role, .level, .site, .vendor } AS node, hops
+       ORDER BY hops ASC, dst.level ASC, dst.name ASC`,
+      { name: q.device, include_transport: q.include_transport },
+    );
+
+    const rows: ImpactRow[] = rowsRes.records.map((rec) => {
+      const n = rec.get("node") as Record<string, unknown>;
+      return {
+        name: String(n.name),
+        role: String(n.role ?? "Unknown"),
+        level: toNum(n.level ?? 0),
+        site: toStrOrNull(n.site),
+        vendor: toStrOrNull(n.vendor),
+        hops: toNum(rec.get("hops")),
+      };
+    });
+
+    const byKey = new Map<string, RoleSummary>();
+    for (const r of rows) {
+      const k = `${r.level} ${r.role}`;
+      const existing = byKey.get(k);
+      if (existing) existing.count++;
+      else byKey.set(k, { role: r.role, level: r.level, count: 1 });
+    }
+    const summary = [...byKey.values()].sort(
+      (a, b) => a.level - b.level || b.count - a.count,
+    );
+    const total = rows.length;
+
+    if (total > HARD_CAP) {
+      return { status: "too_large", start, total, summary };
+    }
+    return { status: "ok", start, total, summary, rows };
+  } finally {
+    await session.close();
+  }
+}
+
+type Nr = { toNumber: () => number };
+function toNum(v: unknown): number {
+  if (typeof v === "number") return v;
+  if (v && typeof (v as Nr).toNumber === "function") return (v as Nr).toNumber();
+  return Number(v);
+}
+function toStrOrNull(v: unknown): string | null {
+  return v == null ? null : String(v);
 }
