@@ -16,15 +16,18 @@ describe("Nav", () => {
     expect(html).toContain('data-testid="nav-row-1"');
     expect(html).not.toContain('data-testid="nav-row-2"');
   });
-  it("renders admin row for admin", () => {
+  it("renders admin row for admin with users/ingestion/audit entries", () => {
     const s = { user: { ...base.user, role: "admin" as const } };
     const html = renderToStaticMarkup(Nav({ session: s as any }));
     expect(html).toContain('data-testid="nav-row-2"');
     expect(html).toContain('href="/admin/users"');
+    expect(html).toContain('href="/admin/ingestion"');
+    expect(html).toContain('href="/admin/audit"');
   });
   it("does not render admin row for operator", () => {
     const s = { user: { ...base.user, role: "operator" as const } };
     const html = renderToStaticMarkup(Nav({ session: s as any }));
     expect(html).not.toContain('data-testid="nav-row-2"');
+    expect(html).not.toContain('href="/admin/ingestion"');
   });
 });
