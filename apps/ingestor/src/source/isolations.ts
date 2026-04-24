@@ -27,6 +27,10 @@ export function parseConnectedNodes(raw: string | null): string[] {
  *
  * Short-lived Client — same rationale as readActiveLldpRows and readSites.
  *
+ * Graceful-degrade: if `app_isolations` does not exist in the source DB
+ * (e.g. older source schema, fixture source in tests), returns [] instead of
+ * throwing. This matches V1's "graceful degrade" posture.
+ *
  * NEVER log the result — contains real device names.
  */
 export async function readIsolations(sourceUrl: string): Promise<SourceIsolationRow[]> {
@@ -48,6 +52,14 @@ export async function readIsolations(sourceUrl: string): Promise<SourceIsolation
       vendor: r.vendor,
       connected_nodes: parseConnectedNodes(r.connected_nodes),
     }));
+  } catch (err: unknown) {
+    // "relation does not exist" (Postgres error code 42P01) — source DB has no
+    // app_isolations table yet. Degrade gracefully rather than failing the run.
+    const code = (err as { code?: string }).code;
+    if (code === "42P01") {
+      return [];
+    }
+    throw err;
   } finally {
     await client.end();
   }
