@@ -41,6 +41,32 @@ export default async function HomePage() {
           </p>
         )}
       </section>
+
+      <section className="mt-10">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Explore
+        </h2>
+        <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <li>
+            <a
+              href="/core"
+              data-testid="home-nav-core"
+              className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+            >
+              Core network <span className="text-slate-400">→</span>
+            </a>
+          </li>
+          <li>
+            <a
+              href="/analytics"
+              data-testid="home-nav-analytics"
+              className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+            >
+              Top by fan-out <span className="text-slate-400">→</span>
+            </a>
+          </li>
+        </ul>
+      </section>
     </main>
   );
 }
