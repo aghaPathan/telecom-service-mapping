@@ -45,7 +45,7 @@ pnpm --filter ingestor test -- --run | grep '\brule' | sort
 | 21 | `protection_cid` space-split → first CID for DWDM protection paths | PORT | deferred | — | Needs CID loader — deferred to #61 (Slice 4 DWDM) |
 | 22 | `UPLINK_EXCLUDE_LIST` enforcement (RIPR / RGUX / RGUL / RGUF / RUFX / 2G / 3G / 4G / 5G) | PORT | deferred | — | Query-layer; deferred to #60 (Slice 3 weighted paths) |
 | 23 | main-graph = largest weakly-connected component threshold (configurable) | PORT | deferred | — | Query-layer (GDS WCC); deferred to #60 (Slice 3 weighted paths) |
-| 24 | `topology_devices_view` → `topology_devices_dynamic_view` fallback | PORT | N/A | — | V2 derives inventory from LLDP links; no devices view read today — investigation in T11; reopen if isolation source (Slice 2) needs it |
+| 24 | `topology_devices_view` → `topology_devices_dynamic_view` fallback | PORT | N/A (current architecture) | — | V2 derives device inventory from app_lldp; no devices-view read stage exists. Follow-up: if an inventory-source stage is added later (e.g. for PRD isolations expansion), wire the static→dynamic fallback then. |
 | 25 | BNG Master/Slave failover | PORT | N/A | — | Only relevant if SAI Ping reconsidered; SAI Ping is PRD-Rejected — stays a no-op in V2 |
 | 26 | V1 `total_offline` filter used `status='Online'` — V2 must use `status='Offline'` | FIX | deferred | — | V2 has no OLT customer surface yet — deferred to #61 (Slice 4 / ClickHouse pending) |
 | 27 | V1 NSR-suffix `elif` branch was unreachable — V2 must execute both LD and NSR stripping | FIX | deferred | — | Depends on CID loader — deferred to #61 (Slice 4 DWDM) |
