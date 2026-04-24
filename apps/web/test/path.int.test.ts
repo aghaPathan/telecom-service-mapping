@@ -223,4 +223,54 @@ describe("runPath against live Neo4j", () => {
     expect(res.hops.map((h) => h.name)).toEqual(["A", "B", "Core"]);
     expect(res.hops.map((h) => h.edge_weight_in)).toEqual([null, null, null]);
   });
+
+  async function seedDeviceToDevice(driver: Driver) {
+    const session = driver.session();
+    try {
+      await session.run(`MATCH (n) DETACH DELETE n`);
+      await session.run(
+        "CREATE CONSTRAINT device_name_unique IF NOT EXISTS FOR (d:Device) REQUIRE d.name IS UNIQUE",
+      );
+      await session.run(
+        "CREATE INDEX device_level IF NOT EXISTS FOR (d:Device) ON (d.level)",
+      );
+      // Two level-2 UPEs connected through a shared level-3 CSG.
+      // A monotonic-only predicate would force the path through core.
+      // Corridor predicate [min-1, max+1] = [1, 3] must keep the detour via CSG valid.
+      await session.run(
+        `CREATE
+          (a:Device:UPE {name:'A', role:'UPE', level:2, site:'S', domain:'D'}),
+          (b:Device:UPE {name:'B', role:'UPE', level:2, site:'S', domain:'D'}),
+          (mid:Device:CSG {name:'Mid', role:'CSG', level:3, site:'S', domain:'D'}),
+          (c:Device:CORE {name:'Core', role:'CORE', level:1, site:'S', domain:'D'}),
+          (a)-[:CONNECTS_TO {a_if:'a-mid', b_if:'mid-a'}]->(mid),
+          (mid)-[:CONNECTS_TO {a_if:'mid-b', b_if:'b-mid'}]->(b),
+          (a)-[:CONNECTS_TO {a_if:'a-core', b_if:'core-a'}]->(c),
+          (b)-[:CONNECTS_TO {a_if:'b-core', b_if:'core-b'}]->(c)
+        `,
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  it("device-to-device same-level corridor returns shortest A->Mid->B path", async () => {
+    await seedDeviceToDevice(adminDriver);
+    const { runPath } = await import("@/lib/path");
+    const res = await runPath({ kind: "device", value: "A", to: { value: "B" } });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.hops.map((h) => h.name)).toEqual(["A", "Mid", "B"]);
+    expect(res.length).toBe(2);
+  });
+
+  it("device-to-device across levels uses monotonic predicate", async () => {
+    await seedDeviceToDevice(adminDriver);
+    const { runPath } = await import("@/lib/path");
+    // A (level 2) -> Core (level 1): corridor collapses to the existing monotonic rule.
+    const res = await runPath({ kind: "device", value: "A", to: { value: "Core" } });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.hops.map((h) => h.name)).toEqual(["A", "Core"]);
+  });
 });
