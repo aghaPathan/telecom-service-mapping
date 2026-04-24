@@ -152,4 +152,17 @@ describe("runImpact against live Neo4j", () => {
     expect(roles.has("Customer")).toBe(true);
     expect(roles.has("MW")).toBe(false);
   });
+
+  it("includes MW rows when include_transport=true", async () => {
+    const { runImpact } = await import("@/lib/impact");
+    const res = await runImpact({
+      device: "I5-UPE1",
+      max_depth: 10,
+      include_transport: true,
+    });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") throw new Error("unreachable");
+    expect(res.rows.find((r) => r.name === "I5-MW1")).toBeDefined();
+    expect(res.rows.find((r) => r.name === "I5-MW1")!.level).toBe(3.5);
+  });
 });
