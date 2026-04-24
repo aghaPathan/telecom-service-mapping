@@ -1,6 +1,8 @@
 import nextDynamic from "next/dynamic";
 import Link from "next/link";
+import { requireRole } from "@/lib/rbac";
 import { readSitesWithCoords, type SiteWithCoords } from "@/lib/sites";
+import { getSiteTopology, type SiteTopoData } from "@/lib/map-topology";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -11,6 +13,15 @@ export const revalidate = 0;
 const MapClient = nextDynamic(
   () => import("./map-client").then((m) => m.MapClient),
   { ssr: false, loading: () => <MapLoading /> },
+);
+
+// reactflow also touches `window` at import time — same pattern.
+const SiteTopologyPanel = nextDynamic(
+  () =>
+    import("./_components/site-topology-panel").then(
+      (m) => m.SiteTopologyPanel,
+    ),
+  { ssr: false },
 );
 
 function MapLoading() {
@@ -24,7 +35,20 @@ function MapLoading() {
   );
 }
 
-export default async function MapPage() {
+type SearchParams = Record<string, string | string[] | undefined>;
+
+function toSingle(v: string | string[] | undefined): string | undefined {
+  if (Array.isArray(v)) return v[0];
+  return v;
+}
+
+export default async function MapPage({
+  searchParams,
+}: {
+  searchParams?: SearchParams;
+}) {
+  await requireRole("viewer");
+
   let sites: SiteWithCoords[] = [];
   let error: string | null = null;
   try {
@@ -33,8 +57,19 @@ export default async function MapPage() {
     error = err instanceof Error ? err.message : String(err);
   }
 
+  const site = toSingle(searchParams?.site);
+  let topoData: SiteTopoData | null = null;
+  if (site) {
+    try {
+      topoData = await getSiteTopology(site);
+    } catch {
+      // Gracefully degrade — topology panel will show the empty state.
+      topoData = null;
+    }
+  }
+
   return (
-    <main className="mx-auto max-w-6xl px-6 py-8">
+    <main className="mx-auto max-w-7xl px-6 py-8">
       <header className="flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">
           Sites — geographic view
@@ -61,8 +96,22 @@ export default async function MapPage() {
           and re-run the nightly ingest to fill this map.
         </p>
       ) : (
-        <section className="mt-6">
-          <MapClient sites={sites} />
+        <section className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+          {/* Left column: Leaflet map */}
+          <div data-testid="map">
+            <MapClient sites={sites} />
+          </div>
+
+          {/* Right column: site ego-topology, or empty state */}
+          <div data-testid="site-topology">
+            {site && topoData ? (
+              <SiteTopologyPanel site={site} data={topoData} />
+            ) : (
+              <div className="flex h-[560px] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+                Select a site on the map to view its topology.
+              </div>
+            )}
+          </div>
         </section>
       )}
 
@@ -76,10 +125,7 @@ export default async function MapPage() {
         >
           {sites.map((s) => (
             <li key={s.name}>
-              <Link
-                href={`/devices?site=${encodeURIComponent(s.name)}`}
-                className="block rounded-md border border-slate-200 p-2 hover:bg-slate-50"
-              >
+              <div className="block rounded-md border border-slate-200 p-2 hover:bg-slate-50">
                 <span className="font-medium">{s.name}</span>
                 {s.region ? (
                   <span className="ml-1 text-xs text-slate-500">
@@ -89,7 +135,21 @@ export default async function MapPage() {
                 <span className="ml-1 text-xs text-slate-500">
                   · {s.total} dev
                 </span>
-              </Link>
+                <div className="mt-1 flex gap-2 text-xs">
+                  <Link
+                    href={`/devices?site=${encodeURIComponent(s.name)}`}
+                    className="text-blue-600 underline hover:text-blue-800"
+                  >
+                    Devices
+                  </Link>
+                  <a
+                    href={`?site=${encodeURIComponent(s.name)}`}
+                    className="text-indigo-600 underline hover:text-indigo-800"
+                  >
+                    Topology
+                  </a>
+                </div>
+              </div>
             </li>
           ))}
         </ul>

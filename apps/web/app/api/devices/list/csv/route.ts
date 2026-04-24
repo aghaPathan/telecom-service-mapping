@@ -23,6 +23,7 @@ const PAGE_SIZE = 500;
 function identFor(q: DeviceListQuery): string {
   if (q.mode === "byRole") return q.role;
   if (q.mode === "byLevel") return `level-${q.level}`;
+  if (q.mode === "bySite") return `site-${q.site}`;
   return q.role ? `fanout-${q.role}` : "fanout";
 }
 

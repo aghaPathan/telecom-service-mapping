@@ -37,10 +37,16 @@ const ByFanout = Base.extend({
   limit: clamp(200).default(20),
 });
 
+const BySite = Base.extend({
+  mode: z.literal("bySite"),
+  site: z.string().trim().min(1).max(64),
+});
+
 export const DeviceListQuery = z.discriminatedUnion("mode", [
   ByRole,
   ByLevel,
   ByFanout,
+  BySite,
 ]);
 export type DeviceListQuery = z.infer<typeof DeviceListQuery>;
 
@@ -111,7 +117,11 @@ export async function runDeviceList(
   const sortCol = q.sort === "fanout" ? "name" : q.sort;
 
   const filterClause =
-    q.mode === "byRole" ? "WHERE d.role = $role" : "WHERE d.level = $level";
+    q.mode === "byRole"
+      ? "WHERE d.role = $role"
+      : q.mode === "byLevel"
+        ? "WHERE d.level = $level"
+        : "WHERE d.site = $site";
 
   const listParams: Record<string, unknown> = {
     skip: neo4j.int(skip),
@@ -125,6 +135,10 @@ export async function runDeviceList(
   if (q.mode === "byLevel") {
     listParams.level = q.level;
     countParams.level = q.level;
+  }
+  if (q.mode === "bySite") {
+    listParams.site = q.site;
+    countParams.site = q.site;
   }
 
   // Separate sessions — a Neo4j session cannot execute two queries

@@ -5,6 +5,7 @@ import { getSession } from "@/lib/session";
 import { FreshnessBadge } from "./_components/freshness-badge";
 import { LogoutButton } from "./_components/logout-button";
 import { MyViewsDropdown } from "./_components/my-views-dropdown";
+import { Nav } from "./_components/nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -29,6 +30,7 @@ export default async function RootLayout({
             >
               Telecom Service Mapping
             </Link>
+            <Nav session={session} />
             <div className="flex items-center gap-3">
               {session?.user ? (
                 <>

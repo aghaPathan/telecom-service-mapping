@@ -12,6 +12,8 @@ import { loadConfig, type IngestorConfig } from "./config.js";
 import { readActiveLldpRows } from "./source/lldp.js";
 import { readSites } from "./source/sites.js";
 import { readServices } from "./source/services.js";
+import { readIsolations } from "./source/isolations.js";
+import { writeIsolations } from "./isolations-writer.js";
 import { dedupLldpRows } from "./dedup.js";
 import { buildServicesGraph } from "./services.js";
 import { writeGraph, type SitePortalRow } from "./graph/writer.js";
@@ -213,6 +215,21 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       unresolved: unresolvedCount,
       top_unresolved_tokens: topUnresolved,
     });
+
+    // Isolations stage: full-refresh from source `app_isolations` → target
+    // `isolations` table. Skipped in dry-run (no writes) and smoke mode
+    // (smoke returns early before this point). Non-fatal: a failure logs a
+    // warning but does NOT fail the overall ingest.
+    if (!opts.dryRun) {
+      try {
+        const isolationRows = await readIsolations(config.DATABASE_URL_SOURCE);
+        await writeIsolations(pool, isolationRows);
+        log("info", "isolations_written", { count: isolationRows.length });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log("warn", "isolations_stage_failed", { error: msg });
+      }
+    }
 
     const sites: SitePortalRow[] = rawSites.map((s) => ({
       name: s.site_name,
