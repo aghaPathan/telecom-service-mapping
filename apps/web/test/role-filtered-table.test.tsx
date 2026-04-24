@@ -112,7 +112,8 @@ describe("RoleFilteredTable", () => {
       <RoleFilteredTable {...baseProps} csvHref="/api/devices/list/csv?mode=byRole&role=CORE" />,
     );
     expect(withCsv).toContain('data-testid="rft-csv-link"');
-    expect(withCsv).toContain("/api/devices/list/csv?mode=byRole&role=CORE");
+    // renderToStaticMarkup escapes `&` → `&amp;` in attribute values.
+    expect(withCsv).toContain("/api/devices/list/csv?mode=byRole&amp;role=CORE");
   });
 
   it("preserves carryParams across sort-link hrefs", () => {
