@@ -48,6 +48,41 @@ async function seed(driver: Driver) {
   }
 }
 
+async function seedWeighted(driver: Driver) {
+  const session = driver.session();
+  try {
+    await session.run(
+      `MATCH (n) DETACH DELETE n`, // isolate weighted fixtures from the main seed
+    );
+    await session.run(
+      "CREATE CONSTRAINT device_name_unique IF NOT EXISTS FOR (d:Device) REQUIRE d.name IS UNIQUE",
+    );
+    await session.run(
+      "CREATE INDEX device_level IF NOT EXISTS FOR (d:Device) ON (d.level)",
+    );
+    // Two routes from A (level 2) to Core (level 1):
+    //   A -[w=10]-> B -[w=10]-> Core   (2 hops, total weight 20)
+    //   A -[w=1]->  C -[w=1]->  D -[w=1]-> Core   (3 hops, total weight 3)
+    // Min-hop chooses the 2-hop route; min-weight must choose the 3-hop route.
+    await session.run(
+      `CREATE
+        (a:Device:UPE  {name:'A',     role:'UPE',  level:2, site:'S', domain:'D'}),
+        (b:Device:UPE  {name:'B',     role:'UPE',  level:2, site:'S', domain:'D'}),
+        (c:Device:UPE  {name:'C',     role:'UPE',  level:2, site:'S', domain:'D'}),
+        (d:Device:UPE  {name:'D',     role:'UPE',  level:2, site:'S', domain:'D'}),
+        (core:Device:CORE {name:'Core', role:'CORE', level:1, site:'S', domain:'D'}),
+        (a)-[:CONNECTS_TO {a_if:'a-b', b_if:'b-a', weight: 10.0}]->(b),
+        (b)-[:CONNECTS_TO {a_if:'b-core', b_if:'core-b', weight: 10.0}]->(core),
+        (a)-[:CONNECTS_TO {a_if:'a-c', b_if:'c-a', weight: 1.0}]->(c),
+        (c)-[:CONNECTS_TO {a_if:'c-d', b_if:'d-c', weight: 1.0}]->(d),
+        (d)-[:CONNECTS_TO {a_if:'d-core', b_if:'core-d', weight: 1.0}]->(core)
+      `,
+    );
+  } finally {
+    await session.close();
+  }
+}
+
 beforeAll(async () => {
   neo4jC = await new GenericContainer("neo4j:5-community")
     .withEnvironment({ NEO4J_AUTH: `${NEO_USER}/${NEO_PASS}` })
@@ -154,5 +189,38 @@ describe("runPath against live Neo4j", () => {
     expect(r.hops[0]!.level).toBe(1);
     expect(r.hops[0]!.in_if).toBeNull();
     expect(r.hops[0]!.out_if).toBeNull();
+  });
+
+  it("picks min-weight path over min-hop when all edges are weighted", async () => {
+    await seedWeighted(adminDriver);
+    const { runPath } = await import("@/lib/path");
+    const res = await runPath({ kind: "device", value: "A" });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.weighted).toBe(true);
+    expect(res.total_weight).toBe(3);
+    expect(res.hops.map((h) => h.name)).toEqual(["A", "C", "D", "Core"]);
+    // First hop has no inbound edge -> null; subsequent hops all w=1.
+    expect(res.hops.map((h) => h.edge_weight_in)).toEqual([null, 1, 1, 1]);
+  });
+
+  it("falls back to min-hop when any edge on the candidate set is unweighted", async () => {
+    // Same topology as seedWeighted but strip one weight on the 3-hop route.
+    await seedWeighted(adminDriver);
+    const s = adminDriver.session();
+    try {
+      await s.run(`MATCH ()-[r:CONNECTS_TO {a_if:'c-d'}]-() SET r.weight = null`);
+    } finally {
+      await s.close();
+    }
+    const { runPath } = await import("@/lib/path");
+    const res = await runPath({ kind: "device", value: "A" });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.weighted).toBe(false);
+    expect(res.total_weight).toBeNull();
+    // Hop count preferred -> 2-hop A->B->Core path.
+    expect(res.hops.map((h) => h.name)).toEqual(["A", "B", "Core"]);
+    expect(res.hops.map((h) => h.edge_weight_in)).toEqual([null, null, null]);
   });
 });
