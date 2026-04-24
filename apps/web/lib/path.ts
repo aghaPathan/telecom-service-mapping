@@ -10,35 +10,37 @@ import { toNum, toStrOrNull } from "@/lib/neo4j-coerce";
 // URL + DB bounds consistent). We split on the FIRST colon so device/service
 // names that themselves contain colons survive untouched.
 const FROM_RE = /^(device|service):([\s\S]+)$/;
+const TO_RE = /^device:([\s\S]+)$/;
 
 export const PathQuery = z
-  .object({ from: z.string() })
+  .object({ from: z.string(), to: z.string().optional() })
   .transform((o, ctx) => {
-    const m = FROM_RE.exec(o.from);
-    if (!m) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "from must be 'device:<name>' or 'service:<cid>'",
-      });
+    const fm = FROM_RE.exec(o.from);
+    if (!fm) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "from must be 'device:<name>' or 'service:<cid>'" });
       return z.NEVER;
     }
-    const kind = m[1] as "device" | "service";
-    const value = m[2]!.trim();
-    if (value.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "value must not be empty",
-      });
+    const kind = fm[1] as "device" | "service";
+    const value = fm[2]!.trim();
+    if (value.length === 0 || value.length > 200) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "value invalid" });
       return z.NEVER;
     }
-    if (value.length > 200) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "value exceeds 200 chars",
-      });
-      return z.NEVER;
+    let to: { value: string } | undefined;
+    if (o.to !== undefined) {
+      const tm = TO_RE.exec(o.to);
+      if (!tm) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "to must be 'device:<name>'" });
+        return z.NEVER;
+      }
+      const tv = tm[1]!.trim();
+      if (tv.length === 0 || tv.length > 200) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "to value invalid" });
+        return z.NEVER;
+      }
+      to = { value: tv };
     }
-    return { kind, value };
+    return { kind, value, to };
   });
 export type PathQuery = z.infer<typeof PathQuery>;
 
@@ -56,6 +58,10 @@ export const Hop = z.object({
   domain: z.string().nullable(),
   in_if: z.string().nullable(),
   out_if: z.string().nullable(),
+  // Edge weight ENTERING this hop (null for first hop and whenever the
+  // inbound edge has no observed ISIS cost). PR 1 always emits null until
+  // PR 2 populates :CONNECTS_TO.weight from ClickHouse.
+  edge_weight_in: z.number().nullable(),
 });
 export type Hop = z.infer<typeof Hop>;
 
@@ -79,6 +85,10 @@ export const PathResponse = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("ok"),
     length: z.number(),
+    // True iff every edge on the chosen path had a non-null weight
+    // (weighted Dijkstra ran); false iff hop-count fallback fired.
+    weighted: z.boolean(),
+    total_weight: z.number().nullable(),
     hops: z.array(Hop),
   }),
   z.object({
