@@ -22,7 +22,7 @@ pnpm --filter ingestor test      # vitest + testcontainers (needs Docker)
 pnpm --filter web test           # unit tests (fast, no Docker)
 pnpm --filter web test:int       # integration tests (needs Docker)
 pnpm --filter web test:e2e       # Playwright against PLAYWRIGHT_BASE_URL (needs compose stack)
-pnpm -r lint                     # per-package lint (ingestor/web/db all wire this up)
+pnpm -r lint                     # web + db lint; ingestor is a placeholder (no ESLint wired yet)
 ```
 
 ### Compose stack
@@ -129,6 +129,7 @@ Both files are loaded fresh at the start of every ingest run.
 - **Don't add an export to `packages/db/src/*` without rebuilding `@tsm/db`.** The package's `exports` field points at `dist/`, so a new symbol in `src/` is invisible to the ingestor and web until `pnpm --filter @tsm/db build` runs. When adding cross-workspace code, build `@tsm/db` before running dependents' typecheck or tests.
 - **Don't change `config/role_codes.yaml` `type_map` keys without updating `apps/ingestor/test/fixtures/lldp-50.ts`.** The 50-row fixture's `type_a`/`type_b` values are coupled to the map — the `ingest integration` test's `:CORE`/`:UPE` label assertions go to zero if the fixture codes no longer resolve. Update both in the same PR.
 - **Don't rename a role in `config/hierarchy.yaml` in isolation.** The ingestor applies role strings as the `:Device` secondary label verbatim, so every Cypher `n:OldRole` predicate (SW dynamic-leveling in `apps/ingestor/src/graph/writer.ts`, integration-test seeds, e2e seeds, docs under `.claude/references/`) must be renamed in the same PR. Grep before merging: `rg -nP '(?::|")<OldRole>\b' apps/ .claude/ docs/`.
+- **Don't import `react-leaflet` at module scope in a Next.js page.** Leaflet touches `window` on import, which crashes SSR. Mirror `apps/web/app/map/page.tsx`: `next/dynamic(() => import('./_components/MapClient'), { ssr: false })` + `export const dynamic = "force-dynamic"` on the page. The client component owns all Leaflet imports.
 - **Don't pass `--fail-after` to `gh pr checks`.** That flag doesn't exist; the command errors out. Use plain `gh pr checks <N> --watch` — it exits when every check finishes, regardless of pass/fail.
 
 ---
