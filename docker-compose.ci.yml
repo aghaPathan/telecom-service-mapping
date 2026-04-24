@@ -12,17 +12,3 @@ services:
   caddy:
     environment:
       CADDY_TLS_MODE: http
-  ingestor:
-    # Smoke-mode ingestor exits 0 after seeding; Docker marks an exited
-    # container "unhealthy" the moment a healthcheck is defined, which makes
-    # `docker compose up --wait` fail regardless of how `web.depends_on`
-    # is configured. Disable the healthcheck in this overlay only —
-    # production compose still has it wired for `docker compose ps`
-    # operator visibility in long-lived full mode.
-    healthcheck:
-      # Compose merges healthcheck blocks rather than replacing them; setting
-      # `test: ["NONE"]` is the documented way to cancel the parent's CMD.
-      # `disable: true` alone does not override when the base compose
-      # specifies an explicit `test`.
-      test: ["NONE"]
-      disable: true

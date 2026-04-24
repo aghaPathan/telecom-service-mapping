@@ -64,17 +64,14 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    # Healthcheck inspects the most recent ingestion_runs row: no rows, a
-    # running row, or a succeeded row → healthy. A failed row → unhealthy.
-    # In smoke mode ingestor exits 0 before any healthcheck fires — callers
-    # that depend on "ingest ran at least once" still use service_started
-    # (see web.depends_on.ingestor below).
-    healthcheck:
-      test: ["CMD", "node", "dist/scripts/healthcheck.js"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 90s
+    # Note: we intentionally do NOT wire `dist/scripts/healthcheck.js` as a
+    # container-level `healthcheck` here. `docker compose up --wait` (used
+    # in CI) either rejects exited containers as unhealthy (smoke mode) or
+    # rejects services with no healthcheck at all, so there's no overlay
+    # that makes both paths green. The script lives at
+    # `apps/ingestor/scripts/healthcheck.ts` and is still the intended
+    # probe for operators / external monitoring; a future prod-only overlay
+    # can wire it in without affecting CI.
 
   web:
     build:
