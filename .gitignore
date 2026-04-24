@@ -239,3 +239,4 @@ postgres/data/
 # Local Claude Code agent state — keep shared references checked in.
 .claude/*
 !.claude/references/
+docker-compose.local.yml
