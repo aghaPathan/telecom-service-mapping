@@ -50,7 +50,7 @@ pnpm --filter ingestor test -- --run | grep '\brule' | sort
 | 26 | V1 `total_offline` filter used `status='Online'` — V2 must use `status='Offline'` | FIX | deferred | — | V2 has no OLT customer surface yet — deferred to #61 (Slice 4 / ClickHouse pending) |
 | 27 | V1 NSR-suffix `elif` branch was unreachable — V2 must execute both LD and NSR stripping | FIX | deferred | — | Depends on CID loader — deferred to #61 (Slice 4 DWDM) |
 | 28 | V1 `CID.objects.create()` had no dedup — V2 must use upsert / MERGE on CID | FIX | deferred | — | Depends on CID loader — deferred to #61 (Slice 4 DWDM) |
-| 29 | V1 ClickHouse wrapper silently zeroed `NaN`/empty/`'NIL'` — V2 must not zero nulls | FIX | covered-in-this-pr | — | `formatNullable` helper + freshness-badge + CSV exporter; T13 lands test |
+| 29 | V1 ClickHouse wrapper silently zeroed `NaN`/empty/`'NIL'` — V2 must not zero nulls | FIX | covered-in-this-pr | `apps/web/test/format.test.ts`, `apps/ingestor/test/ingest.int.test.ts` | `formatNullable` helper (T13) covers UI null→dash; regression guard (T14) confirms null vendor stays null in Neo4j |
 | 30 | V1 `LoginMiddleware` bypassed `/performance`, `/tools`, `/event`, `/api` — V2 keeps middleware strict | REJECT | N/A | — | V2 auth middleware has no bypass; no code path to test; documented only |
 | 31 | V1 "alarms = node-is-up" inverted-liveness / SSH-from-web SAI Ping as production feature | REJECT | N/A | — | Two related PRD rejections; V2 treats alarms as alarms; SSH-from-web rejected (redesign as operator CLI outside V2 scope) |
 

@@ -796,6 +796,53 @@ resolver_priority: [type_column, name_prefix, fallback]
     }
   });
 
+  it("ruleFIX: NaN-like source values stay null through pipeline", async () => {
+    // Regression guard for V1 bug: ClickHouse wrapper silently zeroed NaN/empty/NIL.
+    // V2 must propagate null vendor as null (not "", "0", or "unknown") on the :Device node.
+    const sc = new pg.Client({ connectionString: sourceUrl });
+    await sc.connect();
+    try {
+      await sc.query("TRUNCATE app_lldp, app_cid, app_devicecid, app_sitesportal");
+      // vendor_a is NULL (Postgres NULL) — the V1 bug would coerce this to "" or "0".
+      await sc.query(
+        `INSERT INTO app_lldp
+           (device_a_name, device_a_interface, device_b_name, device_b_interface,
+            vendor_a, vendor_b, updated_at, status)
+         VALUES ('NULL-VENDOR-01', 'xe-1', 'NULL-VENDOR-02', 'xe-2', NULL, NULL, now(), true)`,
+      );
+    } finally {
+      await sc.end();
+    }
+
+    await runIngest({
+      dryRun: false,
+      config: {
+        DATABASE_URL: appUrl,
+        DATABASE_URL_SOURCE: sourceUrl,
+        NEO4J_URI: neoUri,
+        NEO4J_USER: neoUser,
+        NEO4J_PASSWORD: neoPassword,
+      },
+    });
+
+    const driver = neo4j.driver(neoUri, neo4j.auth.basic(neoUser, neoPassword));
+    try {
+      const sess = driver.session();
+      try {
+        const res = await sess.run(
+          "MATCH (d:Device {name: 'NULL-VENDOR-01'}) RETURN d.vendor AS vendor",
+        );
+        expect(res.records).toHaveLength(1);
+        // Must be null — not "", "0", or "unknown".
+        expect(res.records[0]!.get("vendor")).toBeNull();
+      } finally {
+        await sess.close();
+      }
+    } finally {
+      await driver.close();
+    }
+  });
+
   it("sites.yaml coords land on :Site nodes after ingest", async () => {
     const cfgDir = mkdtempSync(path.join(tmpdir(), "sites-yaml-"));
     writeFileSync(
