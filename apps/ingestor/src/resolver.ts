@@ -178,11 +178,31 @@ export function buildResolverConfig(
 /**
  * Pure resolver: input → { role, level }. Never throws on data; falls back
  * to the configured Unknown bucket when nothing matches.
+ *
+ * Priority (earliest wins):
+ *   0. 8-digit numeric name  → BusinessCustomer (V2 PRD rule 9)
+ *   1. type_column / name_prefix / name_token (per resolver_priority config)
+ *   2. fallback → Unknown
  */
 export function resolveRole(
   input: DeviceRoleInput,
   cfg: ResolverConfig,
 ): ResolvedRole {
+  // Early check (step 0): pure-numeric names of 8+ digits are business-customer
+  // jumper nodes. We short-circuit before the normal priority cascade so these
+  // never accidentally resolve to a real role via a type_code coincidence.
+  // Level is `unknown_level` (default 99) to avoid silent collisions with any
+  // configured hierarchy level (1–5). Role name "BusinessCustomer" distinguishes
+  // these devices from genuine "Unknown" nodes in downstream Cypher queries.
+  if (/^\d{8,}$/.test(input.name)) {
+    return {
+      role: "BusinessCustomer",
+      level: cfg.hierarchy.unknown_level,
+      tags: ["business-customer"],
+      unresolved_name_token: null,
+    };
+  }
+
   let unresolvedToken: string | null = null;
   for (const step of cfg.roles.resolver_priority) {
     if (step === "type_column") {

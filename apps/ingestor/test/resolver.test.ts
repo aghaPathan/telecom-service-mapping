@@ -292,6 +292,22 @@ describe("ingest contract: resolver", () => {
     expect(resolved.tags).toEqual([]);
   });
 
+  it("rulePORT: 8-digit numeric node classified as BusinessCustomer", () => {
+    // Device name that is exactly 8+ decimal digits → dedicated role.
+    const result = resolveRole({ name: "12345678", type_code: null }, cfg);
+    expect(result.role).toBe("BusinessCustomer");
+    expect(result.tags).toContain("business-customer");
+  });
+
+  it("rulePORT: alphanumeric node NOT classified as BusinessCustomer", () => {
+    // "ABC12345" contains letters — must NOT match /^\d{8,}$/.
+    const alphaResult = resolveRole({ name: "ABC12345", type_code: null }, cfg);
+    expect(alphaResult.role).not.toBe("BusinessCustomer");
+    // Only 7 digits — must NOT match /^\d{8,}$/.
+    const sevenDigit = resolveRole({ name: "1234567", type_code: null }, cfg);
+    expect(sevenDigit.role).not.toBe("BusinessCustomer");
+  });
+
   it("rulePORT: unresolved tokens rolled up to top-N", () => {
     // 5 ResolvedRole objects with three distinct unresolved tokens:
     //   "WLEF" × 3, "ZZZA" × 1, "ZZZB" × 1
