@@ -36,3 +36,18 @@ unknown_level: 99
 #   - else                                → level 3 (default for CustomerAggregation)
 sw_dynamic_leveling:
   enabled: true
+
+# Multi-label classification map. Keyed by the RAW role code from type_map or
+# name_token.map (e.g. "RGUF"), NOT by the resolved role name ("RAN"). This
+# lets a single raw code contribute to multiple technology tags even if two
+# raw codes share a resolved role. The resolver attaches these as `tags[]` on
+# ResolvedRole; persistence to Neo4j is handled in the writer (Task 6).
+#
+# Seeded with RAN multi-tech variants observed in V1 IsolationSummary data:
+#   RGUF — Uplink (U) FDD: serves 3G + 4G
+#   RGUL — Uplink (U) LTE: serves 3G + 4G
+#   RGUX — Uplink (U) mixed: serves 3G + 4G + 5G
+tag_map:
+  RGUF: [3G, 4G]
+  RGUL: [3G, 4G]
+  RGUX: [3G, 4G, 5G]

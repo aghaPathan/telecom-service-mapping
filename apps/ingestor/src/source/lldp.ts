@@ -39,7 +39,7 @@ export async function readActiveLldpRows(sourceUrl: string): Promise<RawLldpRow[
          type_b,
          COALESCE(updated_at, NOW()) AS updated_at
        FROM app_lldp
-       WHERE status = true`,
+       WHERE status = true OR status IS NULL`,
     );
     return rows;
   } finally {

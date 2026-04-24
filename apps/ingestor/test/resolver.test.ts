@@ -6,8 +6,10 @@ import {
   buildResolverConfig,
   loadResolverConfigFromDir,
   resolveRole,
+  summarizeUnresolved,
   type HierarchyConfig,
   type RoleCodesConfig,
+  type ResolvedRole,
 } from "../src/resolver.ts";
 
 const HIERARCHY: HierarchyConfig = {
@@ -68,18 +70,22 @@ describe("resolveRole", () => {
     expect(resolveRole({ name: "anything", type_code: "CORE" }, cfg)).toEqual({
       role: "CORE",
       level: 1,
+      tags: [],
     });
     expect(resolveRole({ name: "x", type_code: "UPE" }, cfg)).toEqual({
       role: "UPE",
       level: 2,
+      tags: [],
     });
     expect(resolveRole({ name: "x", type_code: "GPON" }, cfg)).toEqual({
       role: "GPON",
       level: 3,
+      tags: [],
     });
     expect(resolveRole({ name: "x", type_code: "MW" }, cfg)).toEqual({
       role: "MW",
       level: 3.5,
+      tags: [],
     });
   });
 
@@ -87,19 +93,21 @@ describe("resolveRole", () => {
     expect(resolveRole({ name: "JED-R4GN-01", type_code: "Ran" }, cfg)).toEqual({
       role: "RAN",
       level: 4,
+      tags: [],
     });
   });
 
   it("maps Business Customer → Customer at level 5", () => {
     expect(
       resolveRole({ name: "x", type_code: "Business Customer" }, cfg),
-    ).toEqual({ role: "Customer", level: 5 });
+    ).toEqual({ role: "Customer", level: 5, tags: [] });
   });
 
   it("falls back to Unknown for an unrecognized type code", () => {
     expect(resolveRole({ name: "dev", type_code: "WLEF" }, cfg)).toEqual({
       role: "Unknown",
       level: 99,
+      tags: [],
     });
   });
 
@@ -107,32 +115,32 @@ describe("resolveRole", () => {
     // 37.5% of live rows have empty type — fall through to hostname token.
     expect(
       resolveRole({ name: "JED-ICSG-NO01", type_code: "" }, cfg),
-    ).toEqual({ role: "CSG", level: 3 });
+    ).toEqual({ role: "CSG", level: 3, tags: [] });
     expect(
       resolveRole({ name: "E3773-ICOR-HU02", type_code: null }, cfg),
-    ).toEqual({ role: "CORE", level: 1 });
+    ).toEqual({ role: "CORE", level: 1, tags: [] });
     expect(
       resolveRole({ name: "XYZ-MMWN-ZT01", type_code: "" }, cfg),
-    ).toEqual({ role: "MW", level: 3.5 });
+    ).toEqual({ role: "MW", level: 3.5, tags: [] });
   });
 
   it("name_token falls to Unknown when token not in map and records the token", () => {
     expect(
       resolveRole({ name: "JED-WLEF-NO01", type_code: "" }, cfg),
-    ).toEqual({ role: "Unknown", level: 99, unresolved_name_token: "WLEF" });
+    ).toEqual({ role: "Unknown", level: 99, unresolved_name_token: "WLEF", tags: [] });
   });
 
   it("name_token falls to Unknown when hostname has no separator at index", () => {
     expect(
       resolveRole({ name: "malformed", type_code: "" }, cfg),
-    ).toEqual({ role: "Unknown", level: 99 });
+    ).toEqual({ role: "Unknown", level: 99, tags: [] });
   });
 
   it("type column wins over name token (conflict → type wins)", () => {
     // type_code says CORE, name token says UPE → type wins.
     expect(
       resolveRole({ name: "XX-IUPE-01", type_code: "CORE" }, cfg),
-    ).toEqual({ role: "CORE", level: 1 });
+    ).toEqual({ role: "CORE", level: 1, tags: [] });
   });
 
   it("back-compat: name_prefix still works when listed in priority", () => {
@@ -144,10 +152,10 @@ describe("resolveRole", () => {
     // Longest-prefix wins: XX-CORE-AGG- beats XX-CORE-.
     expect(
       resolveRole({ name: "XX-CORE-AGG-01", type_code: null }, withPrefix),
-    ).toEqual({ role: "UPE", level: 2 });
+    ).toEqual({ role: "UPE", level: 2, tags: [] });
     expect(
       resolveRole({ name: "XX-CORE-02", type_code: "" }, withPrefix),
-    ).toEqual({ role: "CORE", level: 1 });
+    ).toEqual({ role: "CORE", level: 1, tags: [] });
   });
 
   it("unknown role referenced by role_codes falls through to Unknown", () => {
@@ -159,6 +167,7 @@ describe("resolveRole", () => {
     expect(resolveRole({ name: "x", type_code: "XGHOST" }, broken)).toEqual({
       role: "Unknown",
       level: 99,
+      tags: [],
     });
   });
 });
@@ -201,6 +210,133 @@ describe("buildResolverConfig", () => {
       ],
     };
     expect(() => buildResolverConfig(bad, ROLES)).toThrow(/multiple levels/);
+  });
+});
+
+describe("ingest contract: resolver", () => {
+  it("rulePORT: priority type_column beats name_token", () => {
+    // type_code resolves to CORE (level 1); name token "IUPE" would resolve to UPE (level 2).
+    // type_column priority means CORE wins.
+    expect(resolveRole({ name: "XX-IUPE-01", type_code: "CORE" }, cfg)).toEqual({
+      role: "CORE",
+      level: 1,
+      tags: [],
+    });
+  });
+
+  it("rulePORT: priority name_token used when type_column is blank", () => {
+    // type_code is empty string → fall through to name_token → ICSG → CSG (level 3).
+    expect(resolveRole({ name: "XX-ICSG-01", type_code: "" }, cfg)).toEqual({
+      role: "CSG",
+      level: 3,
+      tags: [],
+    });
+  });
+
+  it("rulePORT: fallback to Unknown when both type_column and name_token miss", () => {
+    // Garbage name token + no type_code → Unknown at unknown_level.
+    expect(resolveRole({ name: "XX-ZZZZZ-01", type_code: "" }, cfg)).toEqual({
+      role: "Unknown",
+      level: 99,
+      unresolved_name_token: "ZZZZZ",
+      tags: [],
+    });
+  });
+
+  it("rulePORT: role present in role_codes but missing from hierarchy → Unknown (silent fallback documented)", () => {
+    // XGHOST maps to GhostRole in role_codes, but GhostRole is not in hierarchy.yaml levels.
+    // Should silently return Unknown rather than throwing.
+    const broken = buildResolverConfig(HIERARCHY, {
+      ...ROLES,
+      type_map: { ...ROLES.type_map, XGHOST: "GhostRole" },
+    });
+    expect(resolveRole({ name: "x", type_code: "XGHOST" }, broken)).toEqual({
+      role: "Unknown",
+      level: 99,
+      tags: [],
+    });
+  });
+
+  it("rulePORT: blank type_* falls back to name_token (covers V1 33% blank observation)", () => {
+    // 33% of live rows had blank type_a / type_b; resolver must use name_token in that case.
+    expect(resolveRole({ name: "E3773-ICOR-HU02", type_code: null }, cfg)).toEqual({
+      role: "CORE",
+      level: 1,
+      tags: [],
+    });
+  });
+
+  it("rulePORT: tag_map produces tags[] for multi-tech devices", () => {
+    // RGUF devices participate in both 3G and 4G — tag_map encodes the
+    // multi-label classification keyed by raw type_code / name_token code.
+    // Wire RGUF into type_map so the type_column step resolves it to RAN,
+    // then confirm tag_map lookup uses the raw code "RGUF" not the resolved role.
+    const withTags = buildResolverConfig(
+      { ...HIERARCHY, tag_map: { RGUF: ["3G", "4G"] } },
+      { ...ROLES, type_map: { ...ROLES.type_map, RGUF: "RAN" } },
+    );
+    // type_code "RGUF" → resolves to RAN; tag_map["RGUF"] → ["3G", "4G"].
+    const resolved = resolveRole({ name: "XX-RGUF-01", type_code: "RGUF" }, withTags);
+    expect(resolved.role).toBe("RAN");
+    expect(resolved.tags).toEqual(["3G", "4G"]);
+  });
+
+  it("rulePORT: device with no matching tag_map entry has tags: []", () => {
+    // CORE is not in tag_map → tags defaults to empty array.
+    const withTags = buildResolverConfig(
+      { ...HIERARCHY, tag_map: { RGUF: ["3G", "4G"] } },
+      { ...ROLES, type_map: { ...ROLES.type_map, RGUF: "RAN" } },
+    );
+    const resolved = resolveRole({ name: "XX-ICOR-01", type_code: "CORE" }, withTags);
+    expect(resolved.role).toBe("CORE");
+    expect(resolved.tags).toEqual([]);
+  });
+
+  it("rulePORT: 8-digit numeric node classified as BusinessCustomer", () => {
+    // Device name that is exactly 8+ decimal digits → dedicated role.
+    const result = resolveRole({ name: "12345678", type_code: null }, cfg);
+    expect(result.role).toBe("BusinessCustomer");
+    expect(result.tags).toContain("business-customer");
+  });
+
+  it("rulePORT: alphanumeric node NOT classified as BusinessCustomer", () => {
+    // "ABC12345" contains letters — must NOT match /^\d{8,}$/.
+    const alphaResult = resolveRole({ name: "ABC12345", type_code: null }, cfg);
+    expect(alphaResult.role).not.toBe("BusinessCustomer");
+    // Only 7 digits — must NOT match /^\d{8,}$/.
+    const sevenDigit = resolveRole({ name: "1234567", type_code: null }, cfg);
+    expect(sevenDigit.role).not.toBe("BusinessCustomer");
+  });
+
+  it("rulePORT: RAN service code dictionary resolves known codes", () => {
+    // RGUF → "2G, 3G and FDD sharing the same BB" from ran_service_codes.yaml.
+    const withRan = buildResolverConfig(
+      { ...HIERARCHY, tag_map: {} },
+      { ...ROLES, type_map: { ...ROLES.type_map, RGUF: "RAN" } },
+      { RGUF: "2G, 3G and FDD sharing the same BB" },
+    );
+    const resolved = resolveRole({ name: "XX-RGUF-01", type_code: "RGUF" }, withRan);
+    expect(resolved.role).toBe("RAN");
+    expect(resolved.service_description).toBe("2G, 3G and FDD sharing the same BB");
+  });
+
+  it("rulePORT: unresolved tokens rolled up to top-N", () => {
+    // 5 ResolvedRole objects with three distinct unresolved tokens:
+    //   "WLEF" × 3, "ZZZA" × 1, "ZZZB" × 1
+    // Expected result sorted by count desc then token alpha:
+    //   [{token:"WLEF",count:3},{token:"ZZZA",count:1},{token:"ZZZB",count:1}]
+    const resolveds: ResolvedRole[] = [
+      { role: "Unknown", level: 99, tags: [], unresolved_name_token: "WLEF" },
+      { role: "Unknown", level: 99, tags: [], unresolved_name_token: "WLEF" },
+      { role: "Unknown", level: 99, tags: [], unresolved_name_token: "WLEF" },
+      { role: "Unknown", level: 99, tags: [], unresolved_name_token: "ZZZA" },
+      { role: "Unknown", level: 99, tags: [], unresolved_name_token: "ZZZB" },
+    ];
+    expect(summarizeUnresolved(resolveds, 20)).toEqual([
+      { token: "WLEF", count: 3 },
+      { token: "ZZZA", count: 1 },
+      { token: "ZZZB", count: 1 },
+    ]);
   });
 });
 

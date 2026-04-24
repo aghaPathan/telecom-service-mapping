@@ -22,6 +22,7 @@ import { startScheduler, tickCron } from "./cron.js";
 import {
   loadResolverConfigFromDir,
   resolveRole,
+  summarizeUnresolved,
   type ResolverConfig,
 } from "./resolver.js";
 import { loadSitesYaml, defaultSitesYamlPath } from "./sites-coords.js";
@@ -189,8 +190,8 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
         ?? config.RESOLVER_CONFIG_DIR
         ?? defaultConfigDir(),
     );
-    const unresolvedTokens = new Map<string, number>();
     let unresolvedCount = 0;
+    const allResolved: import("./resolver.js").ResolvedRole[] = [];
     for (const d of dedup.devices) {
       const resolved = resolveRole(
         { name: d.name, type_code: d.type_code },
@@ -198,23 +199,24 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       );
       d.role = resolved.role;
       d.level = resolved.level;
+      d.tags = resolved.tags;
+      d.service_description = resolved.service_description ?? null;
+      allResolved.push(resolved);
       if (resolved.level === resolverCfg.hierarchy.unknown_level) {
         unresolvedCount += 1;
-        const token = resolved.unresolved_name_token;
-        if (token) {
-          unresolvedTokens.set(token, (unresolvedTokens.get(token) ?? 0) + 1);
-        }
       }
     }
-    const topUnresolved = [...unresolvedTokens.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 20)
-      .map(([token, count]) => ({ token, count }));
+    const topUnresolved = summarizeUnresolved(allResolved, 20);
     log("info", "roles_resolved", {
       devices: dedup.devices.length,
       unresolved: unresolvedCount,
       top_unresolved_tokens: topUnresolved,
     });
+    // Append rollup warning when there are unresolved tokens — gives data-quality
+    // stewards visibility into trending resolver gaps via warnings_json.
+    const resolverWarnings: unknown[] = topUnresolved.length > 0
+      ? [{ kind: "unresolved_role_tokens", topN: 20, entries: topUnresolved }]
+      : [];
 
     // Isolations stage: full-refresh from source `app_isolations` → target
     // `isolations` table. Skipped in dry-run (no writes) and smoke mode
@@ -251,7 +253,7 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
         terminate_edges: 0,
         located_at_edges: 0,
         protected_by_edges: 0,
-        warnings: dedup.warnings,
+        warnings: [...dedup.warnings, ...resolverWarnings],
       });
       log("info", "run_finished_dry_run", { runId });
       return {
@@ -313,7 +315,7 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       terminate_edges: counts.terminate_edges,
       located_at_edges: counts.located_at_edges,
       protected_by_edges: counts.protected_by_edges,
-      warnings: dedup.warnings,
+      warnings: [...dedup.warnings, ...resolverWarnings],
     });
     log("info", "run_finished", { runId });
 

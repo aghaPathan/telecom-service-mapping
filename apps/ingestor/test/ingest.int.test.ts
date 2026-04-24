@@ -370,8 +370,24 @@ describe("ingest integration (testcontainers)", () => {
       expect(row.protected_by_edges).toBe(1);
       expect(row.located_at_edges).toBeGreaterThan(0);
       // warnings_json is stored as a jsonb; pg returns it already parsed.
+      // We use a shape-tolerant check so new warning kinds (e.g. unresolved_role_tokens
+      // rollup appended by T9) don't break this assertion.
       expect(Array.isArray(row.warnings_json)).toBe(true);
-      expect(row.warnings_json).toHaveLength(expected.warnings.length);
+      // Anomaly warnings from dedup are present (count matches dedup output).
+      expect(
+        (row.warnings_json as unknown[]).filter(
+          (w) => (w as { kind?: string }).kind !== "unresolved_role_tokens",
+        ),
+      ).toHaveLength(expected.warnings.length);
+      // Any unresolved_role_tokens entry has the expected shape.
+      const rollups = (row.warnings_json as unknown[]).filter(
+        (w) => (w as { kind?: string }).kind === "unresolved_role_tokens",
+      );
+      for (const r of rollups) {
+        const entry = r as { kind: string; topN: number; entries: unknown[] };
+        expect(entry.topN).toBe(20);
+        expect(Array.isArray(entry.entries)).toBe(true);
+      }
     } finally {
       await ac.end();
     }
@@ -487,6 +503,123 @@ describe("ingest integration (testcontainers)", () => {
     }
   });
 
+  it("ruleNEW: tags[] field persisted on Device nodes (empty when no tag_map match)", async () => {
+    // The fixture uses CORE/UPE/CSG/null type codes — none match tag_map entries
+    // (RGUF/RGUL/RGUX), so all devices get tags: []. This test proves the field
+    // is written to Neo4j; the non-empty case is covered by the next test.
+    // Must run BEFORE SW-leveling test which TRUNCATEs app_lldp.
+    await runIngest({
+      dryRun: false,
+      config: {
+        DATABASE_URL: appUrl,
+        DATABASE_URL_SOURCE: sourceUrl,
+        NEO4J_URI: neoUri,
+        NEO4J_USER: neoUser,
+        NEO4J_PASSWORD: neoPassword,
+      },
+    });
+
+    const driver = neo4j.driver(neoUri, neo4j.auth.basic(neoUser, neoPassword));
+    try {
+      const sess = driver.session();
+      try {
+        // All fixture devices should have tags property (empty array).
+        const nullTags = await sess.run(
+          "MATCH (d:Device) WHERE d.tags IS NULL RETURN count(d) AS c",
+        );
+        expect(nullTags.records[0]!.get("c").toNumber()).toBe(0);
+
+        const emptyTags = await sess.run(
+          "MATCH (d:Device {name: 'XX-AAA-CORE-01'}) RETURN d.tags AS tags",
+        );
+        expect(emptyTags.records).toHaveLength(1);
+        expect(emptyTags.records[0]!.get("tags")).toEqual([]);
+      } finally {
+        await sess.close();
+      }
+    } finally {
+      await driver.close();
+    }
+  });
+
+  it("ruleNEW: tags[] populated from tag_map when raw code matches", async () => {
+    // Custom config with a tag_map entry that maps test code TRGUF → RAN with
+    // tags [3G, 4G]. Seeding a device with that type_a code proves non-empty tags.
+    const cfgDir = mkdtempSync(path.join(tmpdir(), "tags-test-"));
+    writeFileSync(
+      path.join(cfgDir, "hierarchy.yaml"),
+      `levels:
+  - { level: 1, label: Core, roles: [CORE] }
+  - { level: 4, label: Access, roles: [RAN] }
+unknown_label: Unknown
+unknown_level: 99
+sw_dynamic_leveling:
+  enabled: false
+tag_map:
+  TRGUF: [3G, 4G]
+`,
+    );
+    writeFileSync(
+      path.join(cfgDir, "role_codes.yaml"),
+      `type_map:
+  TCOR: CORE
+  TRGUF: RAN
+name_prefix_map: {}
+fallback: Unknown
+resolver_priority: [type_column, name_prefix, fallback]
+`,
+    );
+
+    const sc = new pg.Client({ connectionString: sourceUrl });
+    await sc.connect();
+    try {
+      await sc.query("TRUNCATE app_lldp, app_cid, app_devicecid, app_sitesportal");
+      await sc.query(
+        `INSERT INTO app_lldp
+           (device_a_name, device_a_interface, device_b_name, device_b_interface,
+            type_a, type_b, updated_at, status)
+         VALUES
+           ('CORE-01', 'xe-1', 'RAN-01', 'xe-2', 'TCOR', 'TRGUF', now(), true)`,
+      );
+    } finally {
+      await sc.end();
+    }
+
+    await runIngest({
+      dryRun: false,
+      resolverConfigDir: cfgDir,
+      config: {
+        DATABASE_URL: appUrl,
+        DATABASE_URL_SOURCE: sourceUrl,
+        NEO4J_URI: neoUri,
+        NEO4J_USER: neoUser,
+        NEO4J_PASSWORD: neoPassword,
+      },
+    });
+
+    const driver = neo4j.driver(neoUri, neo4j.auth.basic(neoUser, neoPassword));
+    try {
+      const sess = driver.session();
+      try {
+        const ranTags = await sess.run(
+          "MATCH (d:Device {name: 'RAN-01'}) RETURN d.tags AS tags",
+        );
+        expect(ranTags.records).toHaveLength(1);
+        expect(ranTags.records[0]!.get("tags")).toEqual(["3G", "4G"]);
+
+        const coreTags = await sess.run(
+          "MATCH (d:Device {name: 'CORE-01'}) RETURN d.tags AS tags",
+        );
+        expect(coreTags.records).toHaveLength(1);
+        expect(coreTags.records[0]!.get("tags")).toEqual([]);
+      } finally {
+        await sess.close();
+      }
+    } finally {
+      await driver.close();
+    }
+  });
+
   it("SW dynamic-leveling post-pass re-levels based on topology", async () => {
     // Custom config: maps a test-only type code to SW/Ran/Customer so we can
     // drive topology without polluting repo config.
@@ -568,6 +701,140 @@ resolver_priority: [type_column, name_prefix, fallback]
         expect(await q("SW-CORE-BOUND")).toBe(2);     // connected to CORE
         expect(await q("SW-ACCESS-BOUND")).toBe(4);   // connected to RAN
         expect(await q("SW-ISOLATED")).toBe(3);       // only connected to SW → default
+      } finally {
+        await sess.close();
+      }
+    } finally {
+      await driver.close();
+    }
+  });
+
+  it("ruleFIX: SW leveling driven by level property, not hardcoded labels", async () => {
+    // Regression for CLAUDE.md pitfall: old Cypher used `n:CORE` / `n:RAN` labels.
+    // This test uses a custom role named CoreCustom (maps to level 1) and
+    // AccessCustom (maps to level 4) — labels that would NEVER match :CORE/:RAN.
+    // Old code: SW stays at default level 3 (toCore/toAccess both false).
+    // New code (n.level = 1 / n.level >= 4): SW correctly moves to level 2.
+    const cfgDir = mkdtempSync(path.join(tmpdir(), "sw-level-fix-"));
+    writeFileSync(
+      path.join(cfgDir, "hierarchy.yaml"),
+      `levels:
+  - { level: 1, label: Core, roles: [CoreCustom] }
+  - { level: 3, label: CustomerAggregation, roles: [SW] }
+  - { level: 4, label: Access, roles: [AccessCustom] }
+unknown_label: Unknown
+unknown_level: 99
+sw_dynamic_leveling:
+  enabled: true
+`,
+    );
+    writeFileSync(
+      path.join(cfgDir, "role_codes.yaml"),
+      `type_map:
+  TCCOR: CoreCustom
+  TSWI: SW
+  TCACC: AccessCustom
+name_prefix_map: {}
+fallback: Unknown
+resolver_priority: [type_column, name_prefix, fallback]
+`,
+    );
+
+    const sc = new pg.Client({ connectionString: sourceUrl });
+    await sc.connect();
+    try {
+      await sc.query("TRUNCATE app_lldp, app_cid, app_devicecid, app_sitesportal");
+      // SW-CORE-BOUND is a SW adjacent to a CoreCustom (level 1) device.
+      // With level-based Cypher: toCore=true → SW.level = 2.
+      // With label-based Cypher: n:CORE returns false for :CoreCustom → SW stays 3.
+      await sc.query(
+        `INSERT INTO app_lldp
+           (device_a_name, device_a_interface, device_b_name, device_b_interface,
+            type_a, type_b, updated_at, status)
+         VALUES
+           ('SW-CORE-BOUND', 'xe-1', 'CORECUSTOM-01', 'xe-1', 'TSWI', 'TCCOR', now(), true),
+           ('SW-ACC-BOUND', 'xe-2', 'ACCESS-01', 'xe-2', 'TSWI', 'TCACC', now(), true)`,
+      );
+    } finally {
+      await sc.end();
+    }
+
+    await runIngest({
+      dryRun: false,
+      resolverConfigDir: cfgDir,
+      config: {
+        DATABASE_URL: appUrl,
+        DATABASE_URL_SOURCE: sourceUrl,
+        NEO4J_URI: neoUri,
+        NEO4J_USER: neoUser,
+        NEO4J_PASSWORD: neoPassword,
+      },
+    });
+
+    const driver = neo4j.driver(neoUri, neo4j.auth.basic(neoUser, neoPassword));
+    try {
+      const sess = driver.session();
+      try {
+        const q = async (name: string): Promise<number> => {
+          const r = await sess.run(
+            "MATCH (d:Device {name: $n}) RETURN d.level AS level",
+            { n: name },
+          );
+          const lvl = r.records[0]!.get("level");
+          return typeof lvl === "number" ? lvl : lvl.toNumber();
+        };
+        // SW adjacent to CoreCustom (level 1) → must resolve to 2 via level property.
+        // Without the fix (old label-based Cypher), this would be 3 (default).
+        expect(await q("SW-CORE-BOUND")).toBe(2);
+        // SW adjacent to AccessCustom (level 4) → must resolve to 4.
+        expect(await q("SW-ACC-BOUND")).toBe(4);
+      } finally {
+        await sess.close();
+      }
+    } finally {
+      await driver.close();
+    }
+  });
+
+  it("ruleFIX: NaN-like source values stay null through pipeline", async () => {
+    // Regression guard for V1 bug: ClickHouse wrapper silently zeroed NaN/empty/NIL.
+    // V2 must propagate null vendor as null (not "", "0", or "unknown") on the :Device node.
+    const sc = new pg.Client({ connectionString: sourceUrl });
+    await sc.connect();
+    try {
+      await sc.query("TRUNCATE app_lldp, app_cid, app_devicecid, app_sitesportal");
+      // vendor_a is NULL (Postgres NULL) — the V1 bug would coerce this to "" or "0".
+      await sc.query(
+        `INSERT INTO app_lldp
+           (device_a_name, device_a_interface, device_b_name, device_b_interface,
+            vendor_a, vendor_b, updated_at, status)
+         VALUES ('NULL-VENDOR-01', 'xe-1', 'NULL-VENDOR-02', 'xe-2', NULL, NULL, now(), true)`,
+      );
+    } finally {
+      await sc.end();
+    }
+
+    await runIngest({
+      dryRun: false,
+      config: {
+        DATABASE_URL: appUrl,
+        DATABASE_URL_SOURCE: sourceUrl,
+        NEO4J_URI: neoUri,
+        NEO4J_USER: neoUser,
+        NEO4J_PASSWORD: neoPassword,
+      },
+    });
+
+    const driver = neo4j.driver(neoUri, neo4j.auth.basic(neoUser, neoPassword));
+    try {
+      const sess = driver.session();
+      try {
+        const res = await sess.run(
+          "MATCH (d:Device {name: 'NULL-VENDOR-01'}) RETURN d.vendor AS vendor",
+        );
+        expect(res.records).toHaveLength(1);
+        // Must be null — not "", "0", or "unknown".
+        expect(res.records[0]!.get("vendor")).toBeNull();
       } finally {
         await sess.close();
       }

@@ -1,0 +1,27 @@
+# Radio access tech-type code → human-readable description.
+# Source: V1 app/helper_models/Topo.py ran_serv dict. Generic industry codes,
+# not operator-specific.
+codes:
+  R2GN: "2G standalone"
+  R3GN: "3G standalone"
+  R4GF: "4G FDD standalone"
+  R4GT: "4G TDD standalone"
+  R4GN: "4G FDD/TDD standalone"
+  R5G2: "5G Band 2.6"
+  R5G3: "5G Band 3.7"
+  R5GN: "5G Bands 2.6 & 3.7"
+  RGFX: "2G and FDD sharing the same BB"
+  RGUX: "2G and 3G sharing the same BB"
+  RGUF: "2G, 3G and FDD sharing the same BB"
+  RGUL: "2G, 3G and 4G sharing the same BB"
+  RALL: "2G, 3G, 4G and 5G sharing the same BB"
+  RLNX: "4G and 5G sharing the same BB"
+  RTNX: "TDD and 5G sharing the same BB"
+  RUFX: "3G and FDD sharing the same BB"
+  RULX: "3G and 4G sharing the same BB"
+  RULN: "3G, 4G and 5G sharing the same BB"
+  RGLN: "2G, 4G FDD, 4G TDD and 5G sharing the same BB"
+  RGLX: "2G and 4G FDD, 4G FDD sharing the same BB"
+  RBSC: "Base station controller"
+  RRNC: "Radio network controller"
+  RBRC: "Multi BSC/RNC"

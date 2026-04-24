@@ -135,6 +135,9 @@ export async function writeGraph(
         "CREATE INDEX device_vendor IF NOT EXISTS FOR (d:Device) ON (d.vendor)",
       );
       await session.run(
+        "CREATE INDEX device_tags IF NOT EXISTS FOR (d:Device) ON (d.tags)",
+      );
+      await session.run(
         "CREATE INDEX service_mobily_cid IF NOT EXISTS FOR (s:Service) ON (s.mobily_cid)",
       );
       await session.run(
@@ -181,6 +184,8 @@ export async function writeGraph(
           role,
           level: d.level ?? resolverCfg.hierarchy.unknown_level,
           site: parsed.site,
+          tags: d.tags ?? [],
+          service_description: d.service_description ?? null,
         };
       });
       const session = driver.session();
@@ -189,13 +194,15 @@ export async function writeGraph(
           tx.run(
             `UNWIND $batch AS d
                MERGE (x:Device {name: d.name})
-               SET x.vendor = d.vendor,
-                   x.domain = d.domain,
-                   x.ip     = d.ip,
-                   x.mac    = d.mac,
-                   x.role   = d.role,
-                   x.level  = d.level,
-                   x.site   = d.site,
+               SET x.vendor              = d.vendor,
+                   x.domain              = d.domain,
+                   x.ip                  = d.ip,
+                   x.mac                 = d.mac,
+                   x.role                = d.role,
+                   x.level               = d.level,
+                   x.site                = d.site,
+                   x.tags                = d.tags,
+                   x.service_description = d.service_description,
                    x:\`${role}\``,
             { batch: payload },
           ),
@@ -388,6 +395,15 @@ export async function writeGraph(
   }
 
   // Phase 10: SW dynamic-leveling post-pass.
+  //
+  // Uses `n.level` property (not hardcoded role labels) to determine topology:
+  //   - Level 1 = Core tier (per hierarchy.yaml)
+  //   - Level >= 4 = Access tier (per hierarchy.yaml)
+  //
+  // This replaces a V1-inherited label-hardcode (`n:CORE`, `n:RAN`, `n:Customer`)
+  // that silently failed when the hierarchy used non-CORE/RAN/Customer role names
+  // — a CLAUDE.md-flagged pitfall. Filtering by `n.level` is hierarchy-config-
+  // agnostic and always correct regardless of what role names are configured.
   if (
     resolverCfg.hierarchy.sw_dynamic_leveling.enabled &&
     allowed.has("SW")
@@ -400,8 +416,8 @@ export async function writeGraph(
            OPTIONAL MATCH (sw)-[:CONNECTS_TO]-(n:Device)
            WITH sw, collect(n) AS nbrs
            WITH sw,
-                any(n IN nbrs WHERE n:CORE) AS toCore,
-                any(n IN nbrs WHERE n:RAN OR n:Customer) AS toAccess
+                any(n IN nbrs WHERE n.level = 1) AS toCore,
+                any(n IN nbrs WHERE n.level >= 4) AS toAccess
            SET sw.level = CASE
              WHEN toCore   THEN 2
              WHEN toAccess THEN 4
