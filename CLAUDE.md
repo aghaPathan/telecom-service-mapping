@@ -22,6 +22,7 @@ pnpm --filter ingestor test      # vitest + testcontainers (needs Docker)
 pnpm --filter web test           # unit tests (fast, no Docker)
 pnpm --filter web test:int       # integration tests (needs Docker)
 pnpm --filter web test:e2e       # Playwright against PLAYWRIGHT_BASE_URL (needs compose stack)
+pnpm -r lint                     # per-package lint (ingestor/web/db all wire this up)
 ```
 
 ### Compose stack
@@ -105,6 +106,8 @@ Both files are loaded fresh at the start of every ingest run.
 
 ## Common pitfalls (future-Claude, don't repeat these)
 
+> One-liner per pitfall: `Don't X — <reason>. <how to do it right, with file:line or grep>.` Drop entries only after a landed refactor makes the pitfall structurally impossible.
+
 - **Don't parse `app_lldp` rows as if each row is a link.** 90% are one-directional; 10% are mirrored. Dedup via canonical pair.
 - **Don't infer direction from `device_a` vs `device_b`.** Use `level` from hierarchy.
 - **Don't filter `status` away.** `status=true` means "currently observed"; false means "deactivated by trigger on later poll".
@@ -123,10 +126,16 @@ Both files are loaded fresh at the start of every ingest run.
 - **Don't pass hyphen/colon-containing strings raw to `db.index.fulltext.queryNodes`.** The standard analyzer lowercases and splits on non-alphanumerics at index time, so `PK-KHI-CORE-01` is stored as tokens `pk`, `khi`, `core`, `01`. Mirror that on the query side: split input the same way, escape Lucene specials per token (see `escapeLucene` in `apps/web/lib/search.ts`), add `*` per token, and AND-join.
 - **Don't add a `.tsx` unit test without updating `apps/web/vitest.workspace.ts`.** The unit project's include/exclude globs must list `.test.{ts,tsx}`, and the unit project needs `esbuild: { jsx: "automatic" }` (tsconfig's `jsx: "preserve"` is for Next.js, not vitest). Prefer `renderToStaticMarkup` from `react-dom/server` for assertions — no jsdom dependency required. Integration project doesn't need the esbuild override (no JSX there).
 - **Don't emit CSV cells without `csvEscape`.** `apps/web/lib/csv.ts` guards against formula injection (leading `= + - @ \t \r` → apostrophe-prefix + quote) and embedded-tab/quote/comma quoting. Filenames used in `Content-Disposition` must go through `sanitizeFilename` to block CRLF header injection and path traversal.
+- **Don't add an export to `packages/db/src/*` without rebuilding `@tsm/db`.** The package's `exports` field points at `dist/`, so a new symbol in `src/` is invisible to the ingestor and web until `pnpm --filter @tsm/db build` runs. When adding cross-workspace code, build `@tsm/db` before running dependents' typecheck or tests.
+- **Don't change `config/role_codes.yaml` `type_map` keys without updating `apps/ingestor/test/fixtures/lldp-50.ts`.** The 50-row fixture's `type_a`/`type_b` values are coupled to the map — the `ingest integration` test's `:CORE`/`:UPE` label assertions go to zero if the fixture codes no longer resolve. Update both in the same PR.
+- **Don't rename a role in `config/hierarchy.yaml` in isolation.** The ingestor applies role strings as the `:Device` secondary label verbatim, so every Cypher `n:OldRole` predicate (SW dynamic-leveling in `apps/ingestor/src/graph/writer.ts`, integration-test seeds, e2e seeds, docs under `.claude/references/`) must be renamed in the same PR. Grep before merging: `rg -nP '(?::|")<OldRole>\b' apps/ .claude/ docs/`.
+- **Don't pass `--fail-after` to `gh pr checks`.** That flag doesn't exist; the command errors out. Use plain `gh pr checks <N> --watch` — it exits when every check finishes, regardless of pass/fail.
 
 ---
 
 ## References (read on demand)
+
+> These files are reference-only — not auto-loaded. Read only the rows whose "when to read" applies to your current task.
 
 | File | When to read |
 |---|---|
