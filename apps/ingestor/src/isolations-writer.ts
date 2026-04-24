@@ -1,9 +1,9 @@
-import pg from "pg";
+import type pg from "pg";
 import type { SourceIsolationRow } from "./source/isolations.js";
 
-// pg is CJS; destructure Pool from the default export (same pattern as index.ts).
-const { Pool } = pg;
-type PoolType = InstanceType<typeof Pool>;
+// `pg.Pool` as a type reference — the runtime destructure used to live here
+// but nothing in this module constructs a Pool, so `import type` suffices.
+type PoolType = pg.Pool;
 
 /**
  * Full-refresh writer: TRUNCATE the target `isolations` table and re-INSERT
