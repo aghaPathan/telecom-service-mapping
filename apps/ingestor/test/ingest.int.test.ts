@@ -370,8 +370,24 @@ describe("ingest integration (testcontainers)", () => {
       expect(row.protected_by_edges).toBe(1);
       expect(row.located_at_edges).toBeGreaterThan(0);
       // warnings_json is stored as a jsonb; pg returns it already parsed.
+      // We use a shape-tolerant check so new warning kinds (e.g. unresolved_role_tokens
+      // rollup appended by T9) don't break this assertion.
       expect(Array.isArray(row.warnings_json)).toBe(true);
-      expect(row.warnings_json).toHaveLength(expected.warnings.length);
+      // Anomaly warnings from dedup are present (count matches dedup output).
+      expect(
+        (row.warnings_json as unknown[]).filter(
+          (w) => (w as { kind?: string }).kind !== "unresolved_role_tokens",
+        ),
+      ).toHaveLength(expected.warnings.length);
+      // Any unresolved_role_tokens entry has the expected shape.
+      const rollups = (row.warnings_json as unknown[]).filter(
+        (w) => (w as { kind?: string }).kind === "unresolved_role_tokens",
+      );
+      for (const r of rollups) {
+        const entry = r as { kind: string; topN: number; entries: unknown[] };
+        expect(entry.topN).toBe(20);
+        expect(Array.isArray(entry.entries)).toBe(true);
+      }
     } finally {
       await ac.end();
     }

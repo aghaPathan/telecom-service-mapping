@@ -254,6 +254,32 @@ function finalize(
 }
 
 /**
+ * Summarises unresolved name-token buckets for post-run data-quality reporting.
+ *
+ * Accepts a slice of `ResolvedRole` results, buckets by `unresolved_name_token`
+ * (null/empty entries are ignored — those are resolved devices), and returns
+ * the top-N sorted descending by count then ascending by token (alpha tie-break).
+ *
+ * Emitted into `warnings_json` by `runIngest` when at least one unresolved
+ * token exists, under `{ kind: "unresolved_role_tokens", topN, entries }`.
+ */
+export function summarizeUnresolved(
+  resolveds: ResolvedRole[],
+  topN = 20,
+): Array<{ token: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const r of resolveds) {
+    const t = r.unresolved_name_token;
+    if (t == null || t === "") continue;
+    counts.set(t, (counts.get(t) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, topN)
+    .map(([token, count]) => ({ token, count }));
+}
+
+/**
  * Read + validate both YAML files. Throws a single clear error listing all
  * schema violations — fail-fast before any DB work.
  *

@@ -6,8 +6,10 @@ import {
   buildResolverConfig,
   loadResolverConfigFromDir,
   resolveRole,
+  summarizeUnresolved,
   type HierarchyConfig,
   type RoleCodesConfig,
+  type ResolvedRole,
 } from "../src/resolver.ts";
 
 const HIERARCHY: HierarchyConfig = {
@@ -288,6 +290,25 @@ describe("ingest contract: resolver", () => {
     const resolved = resolveRole({ name: "XX-ICOR-01", type_code: "CORE" }, withTags);
     expect(resolved.role).toBe("CORE");
     expect(resolved.tags).toEqual([]);
+  });
+
+  it("rulePORT: unresolved tokens rolled up to top-N", () => {
+    // 5 ResolvedRole objects with three distinct unresolved tokens:
+    //   "WLEF" × 3, "ZZZA" × 1, "ZZZB" × 1
+    // Expected result sorted by count desc then token alpha:
+    //   [{token:"WLEF",count:3},{token:"ZZZA",count:1},{token:"ZZZB",count:1}]
+    const resolveds: ResolvedRole[] = [
+      { role: "Unknown", level: 99, tags: [], unresolved_name_token: "WLEF" },
+      { role: "Unknown", level: 99, tags: [], unresolved_name_token: "WLEF" },
+      { role: "Unknown", level: 99, tags: [], unresolved_name_token: "WLEF" },
+      { role: "Unknown", level: 99, tags: [], unresolved_name_token: "ZZZA" },
+      { role: "Unknown", level: 99, tags: [], unresolved_name_token: "ZZZB" },
+    ];
+    expect(summarizeUnresolved(resolveds, 20)).toEqual([
+      { token: "WLEF", count: 3 },
+      { token: "ZZZA", count: 1 },
+      { token: "ZZZB", count: 1 },
+    ]);
   });
 });
 
