@@ -27,7 +27,41 @@ function HopRow({ hop }: { hop: Hop }) {
   );
 }
 
-function Connector({ out_if, in_if }: { out_if: string | null; in_if: string | null }) {
+function UnweightedBanner() {
+  return (
+    <div
+      data-testid="path-unweighted-banner"
+      role="note"
+      aria-label="Unweighted path"
+      className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+    >
+      This path includes hops without observed ISIS cost.
+      Traversal order reflects hop count, not weighted cost.
+    </div>
+  );
+}
+
+function WeightBadge({ value }: { value: number }) {
+  return (
+    <span
+      data-testid="path-weight-badge"
+      className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-700"
+      aria-label={`ISIS cost ${value}`}
+    >
+      {value}
+    </span>
+  );
+}
+
+function Connector({
+  out_if,
+  in_if,
+  weight,
+}: {
+  out_if: string | null;
+  in_if: string | null;
+  weight: number | null;
+}) {
   return (
     <div
       className="ml-4 flex items-center gap-2 py-1 text-xs text-slate-500"
@@ -36,6 +70,7 @@ function Connector({ out_if, in_if }: { out_if: string | null; in_if: string | n
       <span className="font-mono">{out_if ?? "—"}</span>
       <span aria-hidden="true">→</span>
       <span className="font-mono">{in_if ?? "—"}</span>
+      {weight !== null && <WeightBadge value={weight} />}
     </div>
   );
 }
@@ -69,22 +104,39 @@ export function PathView({ data }: { data: PathResponse }) {
   if (data.status === "no_path") {
     return <NoPathPanel reason={data.reason} unreached_at={data.unreached_at} />;
   }
-  const { hops } = data;
+  const { hops, weighted, total_weight } = data;
   return (
-    <ol
-      className="space-y-0"
-      data-testid="path-view"
-      aria-label="Path trace hops"
-    >
-      {hops.map((hop, i) => {
-        const next = hops[i + 1];
-        return (
-          <li key={`${hop.name}-${i}`}>
-            <HopRow hop={hop} />
-            {next && <Connector out_if={hop.out_if} in_if={next.in_if} />}
-          </li>
-        );
-      })}
-    </ol>
+    <div>
+      {!weighted && <UnweightedBanner />}
+      {weighted && total_weight !== null && (
+        <div className="mb-3 text-sm text-slate-600">
+          Total ISIS cost:{" "}
+          <span data-testid="path-total-weight" className="font-mono">
+            {total_weight}
+          </span>
+        </div>
+      )}
+      <ol
+        className="space-y-0"
+        data-testid="path-view"
+        aria-label="Path trace hops"
+      >
+        {hops.map((hop, i) => {
+          const next = hops[i + 1];
+          return (
+            <li key={`${hop.name}-${i}`}>
+              <HopRow hop={hop} />
+              {next && (
+                <Connector
+                  out_if={hop.out_if}
+                  in_if={next.in_if}
+                  weight={weighted ? next.edge_weight_in : null}
+                />
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
