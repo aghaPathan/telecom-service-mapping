@@ -142,3 +142,48 @@ describe("runCoreOverview against live Neo4j", () => {
     expect(hasEdge(r.edges, "UPE1", "CSG1")).toBe(false);
   });
 });
+
+describe("runTopologyPath against live Neo4j", () => {
+  // Local fixture kept separate from path.int.test.ts to avoid cross-file
+  // coupling. Same A/Mid/B/Core topology: a same-level A<->B corridor via Mid
+  // plus an A->Core / B->Core detour. The path mode resolver must return the
+  // direct A->Mid->B corridor, not route through Core.
+  async function seedTopologyD2D(driver: Driver) {
+    const session = driver.session();
+    try {
+      await session.run(`MATCH (n) DETACH DELETE n`);
+      await session.run(
+        "CREATE CONSTRAINT device_name_unique IF NOT EXISTS FOR (d:Device) REQUIRE d.name IS UNIQUE",
+      );
+      await session.run(
+        "CREATE INDEX device_level IF NOT EXISTS FOR (d:Device) ON (d.level)",
+      );
+      await session.run(
+        `CREATE
+          (a:Device:UPE {name:'A', role:'UPE', level:2, site:'S', domain:'D'}),
+          (b:Device:UPE {name:'B', role:'UPE', level:2, site:'S', domain:'D'}),
+          (mid:Device:CSG {name:'Mid', role:'CSG', level:3, site:'S', domain:'D'}),
+          (c:Device:CORE {name:'Core', role:'CORE', level:1, site:'S', domain:'D'}),
+          (a)-[:CONNECTS_TO {a_if:'a-mid', b_if:'mid-a'}]->(mid),
+          (mid)-[:CONNECTS_TO {a_if:'mid-b', b_if:'b-mid'}]->(b),
+          (a)-[:CONNECTS_TO {a_if:'a-core', b_if:'core-a'}]->(c),
+          (b)-[:CONNECTS_TO {a_if:'b-core', b_if:'core-b'}]->(c)
+        `,
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  it("path mode with from=A&to=B renders the A->B path not A->core", async () => {
+    await seedTopologyD2D(adminDriver);
+    const { runTopologyPath } = await import("@/lib/topology");
+    const graph = await runTopologyPath({
+      from: { kind: "device", value: "A" },
+      to: { kind: "device", value: "B" },
+    });
+    const names = graph.nodes.map((n) => n.id).sort();
+    expect(names).toEqual(["A", "B", "Mid"]);
+    expect(graph.edges.length).toBe(2);
+  });
+});
