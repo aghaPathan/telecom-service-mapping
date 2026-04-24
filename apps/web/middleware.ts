@@ -13,6 +13,15 @@ export default function middleware(req: NextRequest) {
   const { nextUrl } = req;
   const { pathname, search } = nextUrl;
 
+  // Block dev-preview pages in production before auth check so unauthenticated
+  // users also receive 404 (not a redirect to login).
+  if (process.env.NODE_ENV === "production") {
+    const devOnly = ["/design-preview", "/graph-preview"];
+    if (devOnly.some(p => pathname === p || pathname.startsWith(p + "/"))) {
+      return new Response("Not Found", { status: 404 });
+    }
+  }
+
   if (PUBLIC_EXACT.has(pathname)) return;
   // Kept as a public namespace even though empty — legacy routes we might
   // reintroduce (e.g. CSRF endpoint) would need to pass through.
