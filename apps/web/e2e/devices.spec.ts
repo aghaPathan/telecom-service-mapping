@@ -94,25 +94,24 @@ test.describe.serial("devices (#58) — /devices page and map link", () => {
     await page.waitForLoadState("networkidle");
 
     // The "Site index" accessibility fallback list is always server-rendered
-    // (no Leaflet required) and includes a Devices link per site.
-    // If there are no sites in Neo4j the list is empty — in that case we skip
-    // by checking whether the site list has any items first.
+    // (no Leaflet required) and includes a Devices link per site when sites
+    // exist. If there are no sites in Neo4j the list is present but empty,
+    // OR the page renders an empty/error panel — either path is valid.
     const siteList = page.getByTestId("map-site-list");
-    await expect(siteList).toBeVisible();
-
     const siteItems = siteList.locator("li");
     const count = await siteItems.count();
 
     if (count === 0) {
-      // No sites seeded — the page shows an empty-state. This is still valid.
-      // The map-empty or map-error element will be present; the test passes
-      // because the page loaded without crashing.
+      // No sites seeded — the page shows an empty-state. Empty <ul> has zero
+      // height so it isn't "visible" in Playwright's sense; rely on the empty
+      // or error panel being the observable signal.
       const emptyOrError = page.locator(
         "[data-testid='map-empty'], [data-testid='map-error']",
       );
       await expect(emptyOrError).toBeVisible();
       return;
     }
+    await expect(siteList).toBeVisible();
 
     // At least one site exists: the first site's "Devices" link must point to
     // /devices?site=<something>.
