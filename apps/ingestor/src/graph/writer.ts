@@ -59,6 +59,26 @@ export type GraphWriteInput = {
   services: readonly ServiceProps[];
   terminates: readonly TerminateEdge[];
   protections: readonly ProtectedByEdge[];
+  /** :CID node properties — protection_cids already parsed via parseProtectionCids. */
+  cids: readonly CidProps[];
+};
+
+/**
+ * Properties for a `:CID` node (V1 contract rules #20, #21, #28).
+ * Caller transforms `RawCidRow` → `CidProps` by passing
+ * `raw.protection_cid` through `parseProtectionCids`.
+ */
+export type CidProps = {
+  cid: string;
+  capacity: string | null;
+  source: string | null;
+  dest: string | null;
+  bandwidth: string | null;
+  protection_type: string | null;
+  /** Already parsed via parseProtectionCids — never the raw 'nan' sentinel. */
+  protection_cids: string[];
+  mobily_cid: string | null;
+  region: string | null;
 };
 
 export type GraphWriteCounts = {
@@ -69,6 +89,7 @@ export type GraphWriteCounts = {
   terminate_edges: number;
   located_at_edges: number;
   protected_by_edges: number;
+  cid_nodes: number;
 };
 
 /**
@@ -101,6 +122,8 @@ export async function writeGraph(
       await session.run("MATCH (d:Device) DETACH DELETE d");
       await session.run("MATCH (s:Service) DETACH DELETE s");
       await session.run("MATCH (s:Site) DETACH DELETE s");
+      // :DWDM_LINK edges are removed by the :Device DETACH DELETE above.
+      await session.run("MATCH (c:CID) DETACH DELETE c");
     } finally {
       await session.close();
     }
@@ -118,6 +141,9 @@ export async function writeGraph(
       );
       await session.run(
         "CREATE CONSTRAINT service_cid_unique IF NOT EXISTS FOR (s:Service) REQUIRE s.cid IS UNIQUE",
+      );
+      await session.run(
+        "CREATE CONSTRAINT cid_uniq IF NOT EXISTS FOR (c:CID) REQUIRE c.cid IS UNIQUE",
       );
       await session.run(
         "CREATE INDEX device_role IF NOT EXISTS FOR (d:Device) ON (d.role)",
@@ -243,6 +269,9 @@ export async function writeGraph(
       await session.close();
     }
   }
+
+  // Phase 4b: :CID nodes (V1 contract rule #28 — MERGE-upsert by `cid`).
+  const cid_nodes = await writeCidNodes(driver, data.cids);
 
   // Phase 5: sites — union of sitesportal rows and the sites derived from
   // device names. Portal rows supply category/url; derived-only sites get
@@ -438,5 +467,48 @@ export async function writeGraph(
     terminate_edges,
     located_at_edges,
     protected_by_edges,
+    cid_nodes,
   };
 }
+
+/**
+ * Write `:CID` nodes via MERGE on `cid` (V1 contract rule #28 — idempotent
+ * upsert). Returns the input length (each input row results in exactly one
+ * MERGE, so the post-condition `MATCH (c:CID) RETURN count(c) = inputLength`
+ * holds when called against a fresh DB or applied repeatedly with the same
+ * `cid` keys).
+ *
+ * NEVER log row contents — fixture data here, but production CIDs are real
+ * customer circuit IDs (CLAUDE.md data-sensitivity).
+ */
+export async function writeCidNodes(
+  driver: Driver,
+  cids: readonly CidProps[],
+): Promise<number> {
+  let count = 0;
+  for (const batch of chunk(cids, BATCH_SIZE)) {
+    const session = driver.session();
+    try {
+      await session.executeWrite((tx) =>
+        tx.run(
+          `UNWIND $batch AS row
+             MERGE (c:CID {cid: row.cid})
+             SET c.capacity        = row.capacity,
+                 c.source          = row.source,
+                 c.dest            = row.dest,
+                 c.bandwidth       = row.bandwidth,
+                 c.protection_type = row.protection_type,
+                 c.protection_cids = row.protection_cids,
+                 c.mobily_cid      = row.mobily_cid,
+                 c.region          = row.region`,
+          { batch },
+        ),
+      );
+      count += batch.length;
+    } finally {
+      await session.close();
+    }
+  }
+  return count;
+}
+
