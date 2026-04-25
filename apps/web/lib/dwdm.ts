@@ -222,23 +222,23 @@ export async function getRingDwdm(
   const session = driver.session({ defaultAccessMode: "READ" });
   try {
     const res = await session.run(
-      `MATCH (a:Device)-[r:DWDM_LINK]->(b:Device)
+      `MATCH (a:Device)-[r:DWDM_LINK]-(b:Device)
        WHERE r.ring = $ring
-       WITH collect(DISTINCT a) + collect(DISTINCT b) AS allNodes,
-            collect({
-              a: startNode(r).name,
-              b: endNode(r).name,
-              ring: r.ring,
-              span_name: r.span_name,
-              snfn_cids: r.snfn_cids,
-              mobily_cids: r.mobily_cids,
-              src_interface: r.src_interface,
-              dst_interface: r.dst_interface
-            }) AS edges
+       WITH collect(DISTINCT r) AS rs,
+            collect(DISTINCT a) + collect(DISTINCT b) AS allNodes
        UNWIND allNodes AS n
-       WITH collect(DISTINCT n) AS ns, edges
+       WITH rs, collect(DISTINCT n) AS ns
        RETURN [n IN ns | n { .name, .role, .level, .site, .domain }] AS nodes,
-              edges AS edges`,
+              [r IN rs | {
+                a: startNode(r).name,
+                b: endNode(r).name,
+                ring: r.ring,
+                span_name: r.span_name,
+                snfn_cids: r.snfn_cids,
+                mobily_cids: r.mobily_cids,
+                src_interface: r.src_interface,
+                dst_interface: r.dst_interface
+              }] AS edges`,
       { ring: ringName },
     );
 

@@ -193,4 +193,33 @@ describe("lib/dwdm against live Neo4j", () => {
     const g = await getRingDwdm("NO-SUCH-RING");
     expect(g).toEqual({ nodes: [], edges: [] });
   });
+
+  it("getRingDwdm matches edges regardless of stored direction (reverse-canonical)", async () => {
+    // Mutation guard for the directed->undirected fix. Insert a RING-REV edge
+    // stored as (greater)-[:DWDM_LINK]->(lesser) — reverse of the canonical
+    // lesser->greater order the ingestor writes. With an undirected MATCH the
+    // edge is found; with a directed `->` it would silently disappear.
+    const session = adminDriver.session();
+    try {
+      await session.run(
+        `CREATE
+          (p:Device {name:'XX-PPP-DWDM-01', role:'DWDM', level:3, site:'PPP', domain:'D'}),
+          (q:Device {name:'XX-QQQ-DWDM-01', role:'DWDM', level:3, site:'QQQ', domain:'D'}),
+          // Reverse canonical: QQQ > PPP, but edge points QQQ -> PPP.
+          (q)-[:DWDM_LINK {ring:'RING-REV', span_name:'SPAN-REV',
+                           snfn_cids:[], mobily_cids:[],
+                           src_interface:'q-to-p', dst_interface:'p-to-q'}]->(p)
+        `,
+      );
+    } finally {
+      await session.close();
+    }
+    const { getRingDwdm } = await import("@/lib/dwdm");
+    const g = await getRingDwdm("RING-REV");
+    expect(g.edges.length).toBe(1);
+    expect(g.edges[0]!.ring).toBe("RING-REV");
+    expect(g.edges[0]!.span_name).toBe("SPAN-REV");
+    const names = g.nodes.map((n) => n.name).sort();
+    expect(names).toEqual(["XX-PPP-DWDM-01", "XX-QQQ-DWDM-01"]);
+  });
 });
