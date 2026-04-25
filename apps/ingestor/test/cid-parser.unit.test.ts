@@ -20,6 +20,9 @@ describe("stripSpanSuffix (V1 contract rules #19, #27)", () => {
   it("returns null for empty string", () => {
     expect(stripSpanSuffix("")).toBeNull();
   });
+  it("returns null for whitespace-only input", () => {
+    expect(stripSpanSuffix("   ")).toBeNull();
+  });
   it("strips both branches independently", () => {
     expect(stripSpanSuffix("X -  LD")).toBe("X");
     expect(stripSpanSuffix("X - NSR")).toBe("X");
