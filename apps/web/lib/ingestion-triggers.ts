@@ -1,9 +1,14 @@
 import { getPool } from "@/lib/postgres";
 
-export async function createTrigger(userId: string): Promise<number> {
+export type TriggerFlavor = "full" | "isis_cost";
+
+export async function createTrigger(
+  userId: string,
+  flavor: TriggerFlavor = "full",
+): Promise<number> {
   const { rows } = await getPool().query<{ id: string }>(
-    `INSERT INTO ingestion_triggers (requested_by) VALUES ($1) RETURNING id`,
-    [userId],
+    `INSERT INTO ingestion_triggers (requested_by, flavor) VALUES ($1, $2) RETURNING id`,
+    [userId, flavor],
   );
   return Number(rows[0]!.id);
 }

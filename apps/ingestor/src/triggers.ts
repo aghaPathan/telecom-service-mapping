@@ -1,6 +1,18 @@
 import type { Pool } from "pg";
 
-export type ClaimedTrigger = { id: number; requested_by: string };
+export type TriggerFlavor = "full" | "isis_cost";
+
+export type ClaimedTrigger = {
+  id: number;
+  requested_by: string;
+  flavor: TriggerFlavor;
+};
+
+function coerceFlavor(raw: string): TriggerFlavor {
+  if (raw === "full" || raw === "isis_cost") return raw;
+  // CHECK constraint guarantees this branch is unreachable; defensive fallback.
+  throw new Error(`unexpected ingestion_triggers.flavor: ${raw}`);
+}
 
 export async function claimNextTrigger(
   pool: Pool,
@@ -8,8 +20,12 @@ export async function claimNextTrigger(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const sel = await client.query<{ id: string; requested_by: string }>(
-      `SELECT id, requested_by FROM ingestion_triggers
+    const sel = await client.query<{
+      id: string;
+      requested_by: string;
+      flavor: string;
+    }>(
+      `SELECT id, requested_by, flavor FROM ingestion_triggers
          WHERE claimed_at IS NULL
          ORDER BY requested_at
          LIMIT 1
@@ -25,7 +41,11 @@ export async function claimNextTrigger(
       [row.id],
     );
     await client.query("COMMIT");
-    return { id: Number(row.id), requested_by: row.requested_by };
+    return {
+      id: Number(row.id),
+      requested_by: row.requested_by,
+      flavor: coerceFlavor(row.flavor),
+    };
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
