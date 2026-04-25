@@ -531,7 +531,11 @@ export async function writeCidNodes(
  * construction (the SET clause only fires when MATCH succeeds).
  *
  * Returns the number of `:CONNECTS_TO` edges that received an observed
- * weight (summed across batches).
+ * weight (summed across batches). The count equals distinct edges only
+ * when the caller has deduped input to one row per canonical pair (see
+ * `canonicalizeIsisRows`); without that, A→B and B→A inputs for the same
+ * physical edge each increment the count and the final weight is
+ * last-write-wins.
  *
  * NEVER log row contents — production hostnames per CLAUDE.md
  * data-sensitivity rules.
