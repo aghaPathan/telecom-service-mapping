@@ -1,6 +1,7 @@
 import { requireRole } from "@/lib/rbac";
 import { getPool } from "@/lib/postgres";
 import { getIsisFreshness, type IsisFreshness } from "@/lib/isis-status";
+import { log } from "@/lib/logger";
 import { RunNowButton } from "./run-now-button";
 import { IsisFreshnessBadge } from "./isis-freshness-badge";
 
@@ -28,10 +29,13 @@ async function loadRecentRuns(): Promise<RunRow[]> {
 async function safeIsisFreshness(): Promise<IsisFreshness> {
   try {
     return await getIsisFreshness();
-  } catch {
+  } catch (err) {
     // Neo4j unreachable — render an empty-state badge so the rest of the
-    // admin page is still usable.
-    return { latestObservedAt: null, coveragePct: 0 };
+    // admin page is still usable. Log the underlying error so operators
+    // can diagnose connectivity issues from the structured log stream.
+    const msg = err instanceof Error ? err.message : String(err);
+    log("error", "isis_freshness_failed", { error: msg });
+    return { latestObservedAt: null, coverageFraction: 0 };
   }
 }
 

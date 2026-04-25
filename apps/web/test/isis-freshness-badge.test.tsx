@@ -6,7 +6,7 @@ describe("<IsisFreshnessBadge />", () => {
   it("fresh: no amber class, shows ISO timestamp + coverage %", () => {
     const fresh = new Date(Date.now() - 24 * 60 * 60 * 1000); // 1 day ago
     const html = renderToStaticMarkup(
-      <IsisFreshnessBadge latestObservedAt={fresh} coveragePct={0.5} />,
+      <IsisFreshnessBadge latestObservedAt={fresh} coverageFraction={0.5} />,
     );
     expect(html).not.toContain("bg-amber");
     expect(html).toContain('data-stale="no"');
@@ -17,7 +17,7 @@ describe("<IsisFreshnessBadge />", () => {
   it("stale (>30d): amber class + data-stale='yes'", () => {
     const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
     const html = renderToStaticMarkup(
-      <IsisFreshnessBadge latestObservedAt={old} coveragePct={0.25} />,
+      <IsisFreshnessBadge latestObservedAt={old} coverageFraction={0.25} />,
     );
     expect(html).toContain("bg-amber-100");
     expect(html).toContain('data-stale="yes"');
@@ -26,7 +26,7 @@ describe("<IsisFreshnessBadge />", () => {
 
   it("null observed-at: renders em-dash, not amber", () => {
     const html = renderToStaticMarkup(
-      <IsisFreshnessBadge latestObservedAt={null} coveragePct={0} />,
+      <IsisFreshnessBadge latestObservedAt={null} coverageFraction={0} />,
     );
     expect(html).toContain("—");
     expect(html).not.toContain("bg-amber");

@@ -4,7 +4,7 @@ const STALE_AFTER_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export function IsisFreshnessBadge({
   latestObservedAt,
-  coveragePct,
+  coverageFraction,
 }: IsisFreshness) {
   const now = Date.now();
   const isStale =
@@ -17,7 +17,7 @@ export function IsisFreshnessBadge({
 
   const observedLabel =
     latestObservedAt === null ? "—" : latestObservedAt.toISOString();
-  const coverageLabel = `${(coveragePct * 100).toFixed(1)}%`;
+  const coverageLabel = `${(coverageFraction * 100).toFixed(1)}%`;
 
   return (
     <div

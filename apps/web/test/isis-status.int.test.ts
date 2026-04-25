@@ -52,14 +52,14 @@ beforeEach(async () => {
 });
 
 describe("getIsisFreshness", () => {
-  it("empty graph → { latestObservedAt: null, coveragePct: 0 }", async () => {
+  it("empty graph → { latestObservedAt: null, coverageFraction: 0 }", async () => {
     const { getIsisFreshness } = await import("@/lib/isis-status");
     const r = await getIsisFreshness();
     expect(r.latestObservedAt).toBeNull();
-    expect(r.coveragePct).toBe(0);
+    expect(r.coverageFraction).toBe(0);
   });
 
-  it("4 edges, 2 weighted → coveragePct=0.5, latestObservedAt=fresh", async () => {
+  it("4 edges, 2 weighted → coverageFraction=0.5, latestObservedAt=fresh", async () => {
     const fresh = "2026-04-01T00:00:00Z";
     const old = "2025-01-01T00:00:00Z";
     const session = adminDriver.session();
@@ -88,14 +88,14 @@ describe("getIsisFreshness", () => {
 
     const { getIsisFreshness } = await import("@/lib/isis-status");
     const r = await getIsisFreshness();
-    expect(r.coveragePct).toBeCloseTo(0.5, 6);
+    expect(r.coverageFraction).toBeCloseTo(0.5, 6);
     expect(r.latestObservedAt).not.toBeNull();
     expect(r.latestObservedAt!.toISOString()).toBe(
       new Date(fresh).toISOString(),
     );
   });
 
-  it("all weight-less edges → coveragePct=0, latestObservedAt=null", async () => {
+  it("all weight-less edges → coverageFraction=0, latestObservedAt=null", async () => {
     const session = adminDriver.session();
     try {
       await session.run(`
@@ -109,7 +109,7 @@ describe("getIsisFreshness", () => {
     }
     const { getIsisFreshness } = await import("@/lib/isis-status");
     const r = await getIsisFreshness();
-    expect(r.coveragePct).toBe(0);
+    expect(r.coverageFraction).toBe(0);
     expect(r.latestObservedAt).toBeNull();
   });
 });

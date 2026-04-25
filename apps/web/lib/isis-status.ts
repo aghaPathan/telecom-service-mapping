@@ -4,7 +4,7 @@ export type IsisFreshness = {
   /** Most recent `weight_observed_at` across all weighted edges, or null if none. */
   latestObservedAt: Date | null;
   /** Fraction in [0, 1]: edges with `weight` set ÷ total `:CONNECTS_TO` edges. UI multiplies by 100. */
-  coveragePct: number;
+  coverageFraction: number;
 };
 
 /**
@@ -26,19 +26,19 @@ export async function getIsisFreshness(): Promise<IsisFreshness> {
       RETURN total, withWeight, latest
     `);
     const record = result.records[0];
-    if (!record) return { latestObservedAt: null, coveragePct: 0 };
+    if (!record) return { latestObservedAt: null, coverageFraction: 0 };
 
     const total = toNumber(record.get("total"));
     const withWeight = toNumber(record.get("withWeight"));
     const latestRaw = record.get("latest");
 
-    const coveragePct = total === 0 ? 0 : withWeight / total;
+    const coverageFraction = total === 0 ? 0 : withWeight / total;
     const latestObservedAt =
       latestRaw && typeof latestRaw.toString === "function"
         ? new Date(latestRaw.toString())
         : null;
 
-    return { latestObservedAt, coveragePct };
+    return { latestObservedAt, coverageFraction };
   } finally {
     await session.close();
   }
