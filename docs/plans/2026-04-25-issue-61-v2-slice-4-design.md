@@ -28,52 +28,93 @@ Plus the five contract rules deferred from #59 (rules #19, #20, #21, #27, #28) t
 | Saved Views enum | `ALTER TYPE saved_view_kind ADD VALUE 'impact'; ADD VALUE 'topology'` (additive migration) | Postgres ENUM forward-only add, no data backfill needed |
 | `public.dwdm` schema | **Inferred from PRD target properties** (see below); documented in `.claude/references/source-schema.md`; real-source validation flagged as PR follow-up | Schema not yet documented; testcontainer fixture drives canonical column shape |
 
-## Inferred `public.dwdm` source schema
+## V1 ground truth — `public.dwdm` authoritative schema
 
-Working assumption — to be validated against the real source DB before this PR is merged. Mismatch is a follow-up issue, not a blocker.
+Sourced from V1 codebase (`~/Mobily/git/ServiceMapping_Portal/app/views_/dwdm_view.py:54-60`, `dwdm_topology.py`, `helper_models/Topo.py:888-969`, `management/commands/data_populate.py`, `models/cids.py`, `models/span.py`).
 
+### `public.dwdm`
 | Column | Type | Notes |
 |---|---|---|
 | `device_a_name` | text | hostname |
 | `device_a_interface` | text | port |
+| `device_a_ip` | text | IP |
 | `device_b_name` | text | hostname |
 | `device_b_interface` | text | port |
-| `ring` | text | ring name (free-form) |
+| `device_b_ip` | text | IP |
+| `"Ring"` | text | **CamelCase + double-quoted in V1 SELECT** — must keep quoted in our query |
 | `snfn_cids` | text | space- or comma-separated CID list |
 | `mobily_cids` | text | space-separated CID list |
 | `span_name` | text | may carry `' -  LD'` or `' - NSR'` suffix |
-| `protection_cid` | text | may be `'nan'`, may be space-separated list |
-| `status` | boolean | `true` = currently active (mirror `app_lldp` semantics) |
-| `updated_at` | timestamptz | for anomaly tie-break |
 
-## Target Neo4j model
+No `status`, no `updated_at`, no `protection_cid` on this table — V1 reads all rows unconditionally and looks up `protection_cid` from the CID model at display time.
+
+### `app_cid` (V1 `CID` model — already documented in `.claude/references/source-schema.md`)
+- `cid`, `capacity`, `source`, `dest`, `bandwidth`, `protection_type`, `protection_cid`, `mobily_cid`, `region`
+- `protection_cid` may be `'nan'` (V1 string sentinel for null) or space-separated list of alternate CID names
+
+### V1 protection-path resolution (Topo.py:914-920)
+```python
+cid_obj = CID.objects.get(cid=main_cid)
+protection_cids = cid_obj.protection_cid
+if protection_cids != 'nan' and protection_cids != '':
+    proc_cids = protection_cids.split(" ")
+    # uses proc_cids[0] as the protection CID name
+```
+
+### V1 span-name suffix strip (data_populate.py:36-42 — applied during Excel→Span ingest)
+```python
+for span in span_names.split(","):
+    span_value = span
+    if len(span.split(" -  LD")) > 0:        # rule #19
+        span_value = span.split(' -  LD')[0].strip()
+    elif len(span.split(" - NSR")) > 0:      # rule #27 — V1 elif was unreachable; V2 must hit both branches
+        span_value = span.split(' - NSR')[0].strip()
+```
+
+## Target Neo4j model (V1-faithful)
 
 ```
 (:Device {name})-[:DWDM_LINK {
-   ring,                  // string|null
-   snfn_cids,             // string[]
-   mobily_cids,           // string[]
-   span_name,             // string|null (suffix-stripped)
-   protection_cid,        // string|null (post-'nan'-coercion, post-space-split)
-   updated_at             // datetime
+   ring,                  // string|null  (from "Ring" column)
+   snfn_cids,             // string[]    (parsed list)
+   mobily_cids,           // string[]    (parsed list)
+   span_name              // string|null (LD/NSR suffix-stripped — rules #19, #27)
 }]->(:Device {name})
 
-(:CID {cid})              // MERGE-upserted; cross-referenced from
-                          // :DWDM_LINK.snfn_cids and .mobily_cids
+(:CID {
+   cid,                   // primary key (MERGE — rule #28)
+   capacity,
+   source,
+   dest,
+   bandwidth,
+   protection_type,
+   protection_cids,       // string[]    (parsed: 'nan' → empty, space-split — rules #20, #21)
+   mobily_cid,
+   region
+})
 ```
 
-`[:DWDM_LINK]` direction is canonical (lesser→greater) like `:CONNECTS_TO`; treated as undirected when matching. No new constraints — Postgres-side dedup handles uniqueness.
+**`protection_cid` lives on `:CID`, not `:DWDM_LINK`** — corrects PRD §142 imprecision per V1 ground truth (Topo.py:914-920). PR 2 (SNFN overlay) will look up `:CID` nodes for each `snfn_cids[i]` on a clicked edge to surface protection paths.
+
+`[:DWDM_LINK]` direction is canonical (lesser→greater) like `:CONNECTS_TO`; treated as undirected when matching.
+
+**Constraints / indexes:**
+- `CREATE CONSTRAINT cid_uniq IF NOT EXISTS FOR (c:CID) REQUIRE c.cid IS UNIQUE;`
+- `:DWDM_LINK` uniqueness handled by canonical-pair dedup pre-write (mirror existing LLDP pattern).
 
 ## File-level architecture
 
 **Ingestor (`apps/ingestor/`)**
-- `src/source/dwdm.ts` — new, mirrors `source/lldp.ts` shape; reads `public.dwdm` and emits `RawDwdmRow[]`.
+- `src/source/dwdm.ts` — new, mirrors `source/lldp.ts` shape; reads `public.dwdm` (note: keep `"Ring"` quoted in SQL); emits `RawDwdmRow[]`.
+- `src/source/cid.ts` — new, reads `app_cid` and emits `RawCidRow[]`.
 - `src/dedup.ts` — extend with `dedupDwdmRows()` using canonical interface-pair key.
-- `src/cid.ts` — new, parses raw CID strings (space/comma split, suffix strip, `'nan'` → null), exposes `parseCidList`, `parseProtectionCid`, `stripSpanSuffix`.
-- `src/graph/writer.ts` — extend writer to `MERGE` `:DWDM_LINK` edges + `:CID` nodes. Wraps existing nightly transaction.
-- `test/dwdm.unit.test.ts` — CID parser, dedup, suffix-strip; vitest, no containers.
-- `test/dwdm.int.test.ts` — testcontainer Postgres + Neo4j; 50-row fixture; both directions; rules #19–28.
+- `src/cid-parser.ts` — new, pure parsers: `parseCidList(s)` (space/comma split, drop blanks), `parseProtectionCids(s)` (`'nan'`/empty → `[]`, else space-split — rules #20, #21), `stripSpanSuffix(s)` (LD then NSR, both branches — rules #19, #27).
+- `src/graph/writer.ts` — extend writer to `MERGE` `:DWDM_LINK` edges + `:CID` nodes (rule #28: `MERGE (c:CID {cid:$cid}) ON CREATE/ON MATCH SET ...`). Wraps existing nightly transaction.
+- `test/cid-parser.unit.test.ts` — pure parser tests for rules #19, #20, #21, #27.
+- `test/dwdm.unit.test.ts` — dedup canonical-pair, both-direction merge.
+- `test/dwdm-cid.int.test.ts` — testcontainer Postgres + Neo4j; 50-row DWDM + CID fixtures; rules #28 (CID upsert idempotency), edge directionality.
 - `test/fixtures/dwdm-50.ts` — 50-row synthetic DWDM seed mapped onto existing `lldp-50` device set.
+- `test/fixtures/cid-50.ts` — 50-row synthetic CID rows referenced by DWDM `snfn_cids`.
 
 **Web — DWDM (`apps/web/`)**
 - `lib/dwdm.ts` — Cypher queries: `listDwdmLinks(filter)`, `getNodeDwdm(node)`, `getRingDwdm(ring)`, `getSnfnForEdge(a, b)`.
