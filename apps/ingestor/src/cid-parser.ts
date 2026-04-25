@@ -8,8 +8,10 @@
 export function stripSpanSuffix(s: string | null): string | null {
   if (s === null || s.trim() === "") return null;
   let out = s;
-  if (out.includes(" -  LD")) out = out.split(" -  LD")[0];
-  if (out.includes(" - NSR")) out = out.split(" - NSR")[0];
+  const ldIdx = out.indexOf(" -  LD");
+  if (ldIdx >= 0) out = out.slice(0, ldIdx);
+  const nsrIdx = out.indexOf(" - NSR");
+  if (nsrIdx >= 0) out = out.slice(0, nsrIdx);
   return out.trim();
 }
 
