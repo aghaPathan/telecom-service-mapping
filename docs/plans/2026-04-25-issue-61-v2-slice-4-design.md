@@ -165,18 +165,20 @@ Working assumption — to be validated against the real source DB before this PR
 | Enum migration on warm DB | low | `ADD VALUE IF NOT EXISTS` is non-locking in Postgres ≥12 |
 | Single PR is huge | medium | Plan structures commits as atomic per-feature so reviewer can read them in order; CI runs full suite |
 
-## PR strategy
+## PR strategy — split into 4 sub-PRs
 
-One PR titled `feat: V2 Slice 4 — DWDM + SNFN + Impact XLSX + Saved Views (#61)`. Commits sequenced:
-1. `chore: scaffold DWDM CID parser + tests`
-2. `feat: ingest public.dwdm to :DWDM_LINK edges (#61)`
-3. `feat: SNFN edge overlay shared component (#61)`
-4. `feat: /dwdm list + per-node + per-ring pages (#61)`
-5. `feat: impact XLSX export with role summary (#61)`
-6. `feat: extend saved_views.kind to impact + topology (#61)`
-7. `docs: ADR 0005 + source-schema DWDM + contract README updates`
+Issue #61 stays open until PR 4 lands. Each sub-PR `Refs #61`; only PR 4 `Closes #61`.
 
-Each commit: failing test → impl → green. Bug fixes (if any during work) carry `root cause: <desc>`.
+| # | Title | Scope | Depends on | Closes ACs |
+|---|---|---|---|---|
+| 1 | `feat: DWDM ingest + /dwdm pages + CID parser (#61, PR 1/4)` | source/dwdm.ts, cid.ts, dedup, writer (`:DWDM_LINK` + `:CID`), `/dwdm` list + `/dwdm/[node]` + `/dwdm/ring/[ring]`, `/api/dwdm` + `/api/dwdm/graph`, ADR 0005, source-schema doc, contract rules #19/20/21/27/28 | — | ACs 1–4 |
+| 2 | `feat: SNFN edge overlay on topology canvases (#61, PR 2/4)` | `/api/snfn`, `<SnfnOverlay>` shared component, wire into `/topology` + `/dwdm/*` | PR 1 (needs `:DWDM_LINK` data) | AC 5 |
+| 3 | `feat: impact XLSX export + role-summary header (#61, PR 3/4)` | `lib/xlsx.ts`, `/api/impact/[deviceId]/xlsx`, role-summary rows | — (parallelisable with 1+2) | ACs 6, 7 |
+| 4 | `feat: saved_views.kind extension + impact/topology Save (#61, PR 4/4)` | enum migration, `lib/saved-views.ts` zod, Save View buttons on `/impact/[deviceId]` + `/topology`, My Views dropdown extension. **`Closes #61`.** | PR 3 (Save button slot on impact page) | ACs 8, 9, 10 |
+
+Every PR: TDD per criterion, agent-pipeline, verification-before-completion, RBAC `ROUTES` table extended for any new admin route. CLAUDE.md pitfalls list updated as new traps surface.
+
+**This session implements PR 1 only.** Subsequent `/issues-to-complete` sessions pick up PR 2 → PR 3 → PR 4 in order.
 
 ## Out-of-issue debt callouts
 
