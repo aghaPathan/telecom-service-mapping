@@ -9,6 +9,7 @@ const ROW1 = [
   { href: "/core", label: "Core" },
   { href: "/topology", label: "Topology" },
   { href: "/map", label: "Map" },
+  { href: "/dwdm", label: "DWDM" },
   { href: "/analytics", label: "Analytics" },
   { href: "/isolations", label: "Isolations" },
   { href: "/ingestion", label: "Ingestion" },
