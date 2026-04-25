@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GenericContainer, Wait, type StartedTestContainer } from "testcontainers";
 import pg from "pg";
-import neo4j, { type Driver } from "neo4j-driver";
+import neo4j from "neo4j-driver";
 import { createClient } from "@clickhouse/client";
 import { runIngest } from "../src/index.ts";
 import type { IngestorConfig } from "../src/config.ts";
@@ -306,7 +306,7 @@ describe("isis-cost stage in runIngest (testcontainers)", () => {
 
     const warnings = await readWarnings(result.runId);
     const isis = warnings.filter(
-      (w) => (w as { stage?: string }).stage === "isis_cost",
+      (w) => (w as { kind?: string }).kind === "isis_cost_failure",
     );
     expect(isis).toHaveLength(0);
   });
@@ -351,6 +351,11 @@ describe("isis-cost stage in runIngest (testcontainers)", () => {
     }
     expect(status).toBe("succeeded");
 
+    // Graph integrity guard: the LLDP writer must have rebuilt the graph
+    // before the ISIS stage threw — otherwise a "weight=null" assertion
+    // below would pass vacuously (no edges at all).
+    expect(result.graph.edges).toBeGreaterThan(0);
+
     // Edge exists (writeGraph ran), but no weight was set (ISIS stage threw
     // before reaching writeIsisWeights). `weight_source` stays null too —
     // the writer only sets it on successful MATCH.
@@ -360,11 +365,11 @@ describe("isis-cost stage in runIngest (testcontainers)", () => {
 
     const warnings = await readWarnings(result.runId);
     const isis = warnings.filter(
-      (w) => (w as { stage?: string }).stage === "isis_cost",
+      (w) => (w as { kind?: string }).kind === "isis_cost_failure",
     );
     expect(isis).toHaveLength(1);
-    const entry = isis[0] as { stage: string; error: string };
-    expect(entry.stage).toBe("isis_cost");
+    const entry = isis[0] as { kind: string; error: string };
+    expect(entry.kind).toBe("isis_cost_failure");
     expect(typeof entry.error).toBe("string");
     expect(entry.error.length).toBeGreaterThan(0);
   });
@@ -393,7 +398,7 @@ describe("isis-cost stage in runIngest (testcontainers)", () => {
 
     const warnings = await readWarnings(result.runId);
     const isis = warnings.filter(
-      (w) => (w as { stage?: string }).stage === "isis_cost",
+      (w) => (w as { kind?: string }).kind === "isis_cost_failure",
     );
     expect(isis).toHaveLength(0);
   });

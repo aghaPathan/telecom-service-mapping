@@ -350,7 +350,7 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
     // ISIS-cost stage (issue #67): runs AFTER the LLDP graph write so the
     // :CONNECTS_TO edges already exist. Failures here MUST NOT fail the
     // overall run — ClickHouse is an optional weight source. Errors are
-    // appended to ingestion_runs.warnings_json as `{stage:'isis_cost', ...}`
+    // appended to ingestion_runs.warnings_json as `{kind:'isis_cost_failure', ...}`
     // and existing edge weights are left untouched (the writer only SETs
     // `weight` when MATCH succeeds, so a thrown error never half-writes).
     const isisWarnings: unknown[] = [];
@@ -366,7 +366,7 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
         });
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
-        isisWarnings.push({ stage: "isis_cost", error: errorMsg });
+        isisWarnings.push({ kind: "isis_cost_failure", error: errorMsg });
         log("warn", "isis_weights_failed", { error: errorMsg });
       }
     } else {
