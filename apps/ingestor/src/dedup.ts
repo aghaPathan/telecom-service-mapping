@@ -178,6 +178,90 @@ function applyVendorAlias(
   return aliases[raw.toLowerCase()] ?? raw;
 }
 
+// --- DWDM dedup ----------------------------------------------------------
+
+import { stripSpanSuffix, parseCidList } from "./cid-parser.js";
+import type { RawDwdmRow } from "./source/dwdm.js";
+
+export type DwdmEdge = {
+  src: string; // first-seen casing of canonical lesser
+  dst: string; // first-seen casing of canonical greater
+  src_interface: string | null;
+  dst_interface: string | null;
+  ring: string | null;
+  snfn_cids: string[];
+  mobily_cids: string[];
+  span_name: string | null;
+};
+
+export type DwdmDedupResult = {
+  edges: DwdmEdge[];
+  dropped: { null_b: number; self_loop: number; anomaly: number };
+};
+
+/**
+ * Pure dedup of public.dwdm rows. Mirrors dedupLldpRows shape.
+ * Canonical pair = [lowerMin(a,b), lowerMax(a,b)]; preserves first-seen
+ * casing on output. Span name is suffix-stripped (rules #19, #27);
+ * snfn_cids and mobily_cids are parsed to string arrays (rule #20).
+ *
+ * Drops:
+ *   - null device_a_name OR null device_b_name → dropped.null_b
+ *   - lowercase(a) === lowercase(b)            → dropped.self_loop
+ * Anomaly: >2 rows sharing the same canonical key → first wins, rest
+ *   counted in dropped.anomaly.
+ */
+export function dedupDwdmRows(rows: readonly RawDwdmRow[]): DwdmDedupResult {
+  const dropped = { null_b: 0, self_loop: 0, anomaly: 0 };
+  const seen = new Map<string, { edge: DwdmEdge; count: number }>();
+
+  for (const row of rows) {
+    const a = row.device_a_name;
+    const b = row.device_b_name;
+    if (a === null || b === null) {
+      dropped.null_b += 1;
+      continue;
+    }
+    const la = a.toLowerCase();
+    const lb = b.toLowerCase();
+    if (la === lb) {
+      dropped.self_loop += 1;
+      continue;
+    }
+    const aIsLo = la <= lb;
+    const src = aIsLo ? a : b;
+    const dst = aIsLo ? b : a;
+    const src_interface = aIsLo ? row.device_a_interface : row.device_b_interface;
+    const dst_interface = aIsLo ? row.device_b_interface : row.device_a_interface;
+    const key = `${aIsLo ? la : lb}‖${aIsLo ? lb : la}`;
+
+    const prior = seen.get(key);
+    if (prior) {
+      prior.count += 1;
+      if (prior.count > 2) dropped.anomaly += 1;
+      continue;
+    }
+    seen.set(key, {
+      edge: {
+        src,
+        dst,
+        src_interface,
+        dst_interface,
+        ring: row.ring,
+        snfn_cids: parseCidList(row.snfn_cids),
+        mobily_cids: parseCidList(row.mobily_cids),
+        span_name: stripSpanSuffix(row.span_name),
+      },
+      count: 1,
+    });
+  }
+
+  return {
+    edges: [...seen.values()].map((v) => v.edge),
+    dropped,
+  };
+}
+
 export function dedupLldpRows(
   rows: readonly RawLldpRow[],
   opts: DedupOptions = {},
