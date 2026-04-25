@@ -27,3 +27,17 @@ export function parseCidList(s: string | null): string[] {
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
 }
+
+/**
+ * V1 source: Topo.py:914-920. V1 uses split(" ") and reads [0] as the
+ * active protection CID. We preserve full ordering so callers can pick [0]
+ * explicitly. Comma is NOT a separator here — V1's app_cid.protection_cid
+ * column is space-separated only. Contract rules #20 ('nan' / empty → []),
+ * #21 (space-split, first wins).
+ */
+export function parseProtectionCids(s: string | null): string[] {
+  if (s === null) return [];
+  const trimmed = s.trim();
+  if (trimmed === "" || trimmed.toLowerCase() === "nan") return [];
+  return trimmed.split(/\s+/).filter((t) => t.length > 0);
+}
