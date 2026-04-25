@@ -259,7 +259,11 @@ export async function runPath(q: PathQuery): Promise<PathResponse> {
         { name: q.to.value },
       );
       if (tgtRes.records.length === 0) {
-        return { status: "no_path", reason: "island", unreached_at: null };
+        // Reuse start_not_found for "target device not found" — semantically
+        // a missing endpoint, not a topology disconnect. PathView's
+        // reasonLabel renders this as "Device not found", which is accurate
+        // for a d2d query whose `to` device doesn't exist.
+        return { status: "no_path", reason: "start_not_found", unreached_at: null };
       }
       const tgtDev = deviceRefFrom(
         tgtRes.records[0]!.get("node") as Record<string, unknown>,

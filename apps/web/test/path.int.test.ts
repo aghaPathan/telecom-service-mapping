@@ -273,4 +273,21 @@ describe("runPath against live Neo4j", () => {
     if (res.status !== "ok") return;
     expect(res.hops.map((h) => h.name)).toEqual(["A", "Core"]);
   });
+
+  it("device-to-device with missing target returns start_not_found, not island", async () => {
+    await seedDeviceToDevice(adminDriver);
+    const { runPath } = await import("@/lib/path");
+    const res = await runPath({
+      kind: "device",
+      value: "A",
+      to: { value: "Nonexistent" },
+    });
+    expect(res.status).toBe("no_path");
+    if (res.status !== "no_path") return;
+    // Missing target is a missing-endpoint case, not a topology disconnect.
+    // PathView renders start_not_found as "Device not found" — accurate copy
+    // for a d2d query whose `to` device doesn't exist.
+    expect(res.reason).toBe("start_not_found");
+    expect(res.unreached_at).toBeNull();
+  });
 });
