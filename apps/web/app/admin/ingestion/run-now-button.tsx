@@ -1,17 +1,27 @@
 "use client";
 import { useState } from "react";
+import type { TriggerFlavor } from "@tsm/db";
 
 type State =
   | { status: "idle" }
   | { status: "triggering" }
   | { status: "pending"; triggerId: number }
-  | { status: "succeeded" | "failed" | "timeout" | "error"; triggerId?: number; runId?: number | null };
+  | {
+      status: "succeeded" | "failed" | "timeout" | "error";
+      triggerId?: number;
+      runId?: number | null;
+    };
 
 export function RunNowButton() {
   const [state, setState] = useState<State>({ status: "idle" });
-  async function click() {
+
+  async function trigger(flavor: TriggerFlavor) {
     setState({ status: "triggering" });
-    const r = await fetch("/api/ingestion/run", { method: "POST" });
+    const r = await fetch("/api/ingestion/run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ flavor }),
+    });
     if (!r.ok) {
       setState({ status: "error" });
       return;
@@ -38,16 +48,25 @@ export function RunNowButton() {
     }
     setState({ status: "timeout", triggerId: trigger_id });
   }
+
   const busy = state.status === "triggering" || state.status === "pending";
   return (
     <div className="flex items-center gap-3">
       <button
         data-testid="run-now-button"
-        onClick={click}
+        onClick={() => trigger("full")}
         disabled={busy}
         className="px-3 py-1 rounded bg-slate-900 text-white disabled:opacity-50"
       >
         Run now
+      </button>
+      <button
+        data-testid="run-now-isis-button"
+        onClick={() => trigger("isis_cost")}
+        disabled={busy}
+        className="px-3 py-1 rounded bg-slate-700 text-white disabled:opacity-50"
+      >
+        Run ISIS-cost only
       </button>
       <span className="text-sm" data-testid="run-now-status">
         {state.status}

@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
+import { isTriggerFlavor, type TriggerFlavor } from "@tsm/db";
 
-export type TriggerFlavor = "full" | "isis_cost";
+export type { TriggerFlavor } from "@tsm/db";
 
 export type ClaimedTrigger = {
   id: number;
@@ -9,7 +10,7 @@ export type ClaimedTrigger = {
 };
 
 function coerceFlavor(raw: string): TriggerFlavor {
-  if (raw === "full" || raw === "isis_cost") return raw;
+  if (isTriggerFlavor(raw)) return raw;
   // CHECK constraint guarantees this branch is unreachable; defensive fallback.
   throw new Error(`unexpected ingestion_triggers.flavor: ${raw}`);
 }

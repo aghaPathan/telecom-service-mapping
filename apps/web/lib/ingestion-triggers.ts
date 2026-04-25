@@ -1,6 +1,7 @@
 import { getPool } from "@/lib/postgres";
+import { type TriggerFlavor } from "@tsm/db";
 
-export type TriggerFlavor = "full" | "isis_cost";
+export { type TriggerFlavor, TRIGGER_FLAVORS, isTriggerFlavor } from "@tsm/db";
 
 export async function createTrigger(
   userId: string,
