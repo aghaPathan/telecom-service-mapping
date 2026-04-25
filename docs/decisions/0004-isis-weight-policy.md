@@ -1,6 +1,6 @@
 # 0004 — ISIS weight policy and pure-Cypher shortest-path
 
-**Status:** Accepted (PR 1 of issue #60)
+**Status:** Accepted (PR 1 of #60; PR 2 closed by #67)
 **Date:** 2026-04-25
 **Supersedes:** —
 
@@ -124,3 +124,57 @@ over the relevant range.
   the fallback explicit and visible rather than silent, keeping the
   same spirit but surfacing partial coverage as a UX concern rather
   than burying it as a default.
+
+## PR 2 closure (2026-04-25, issue #67)
+
+PR 2 fills the data side of the policy decided in PR 1. No algorithm
+change.
+
+**Edge schema (final).**
+
+- `weight: float | null` — unchanged from PR 1.
+- `weight_source: 'observed' | null` — set to `'observed'` when an ISIS
+  row matched the canonical edge pair; left null otherwise. Per-vendor
+  refinements (e.g. `'observed:huawei'`) remain deferred until the
+  upstream pipeline onboards more vendors.
+- `weight_observed_at: datetime | null` — the latest `RecordDateTime`
+  from ClickHouse for that canonical pair.
+
+**Edge-match key (confirmed).** Canonical unordered pair
+`{(Device_A_Name, Device_A_Interface), (Device_B_Name, Device_B_Interface)}`.
+Implemented as a JS-side fold in `apps/ingestor/src/isis-cost-dedup.ts`
+on top of the ClickHouse `argMax(ISIS_COST, RecordDateTime) GROUP BY`
+projection in `apps/ingestor/src/source/isis-cost.ts`. Trunk columns
+are not used (per PR 1 context).
+
+**ClickHouse failure isolation.** A CH connection error or query failure
+during a full ingest run is captured as a `warnings_json` entry of the
+form `{kind: 'isis_cost_failure', error: <msg>}`; the run still
+finishes `succeeded`. Existing edges keep whatever state the LLDP
+rebuild produces — concretely `weight=null` for this run, because the
+LLDP refresh always rebuilds the graph from scratch. **The ISIS stage
+never sets `weight=null`** — it only writes observed values. Absence of
+a weight is the LLDP rebuild's default, not an ISIS-stage clear.
+
+**Per-edge coverage / freshness signals.** `getIsisFreshness()` in
+`apps/web/lib/isis-status.ts` computes:
+
+- `coverageFraction` — fraction of `:CONNECTS_TO` edges with
+  `weight IS NOT NULL` over total edges.
+- `latestObservedAt` — `max(weight_observed_at)` across all weighted
+  edges.
+
+Surfaced on `/admin/ingestion` as a freshness badge that turns amber
+when `latestObservedAt` is more than 30 days stale.
+
+**On-demand refresh.** `ingestion_triggers` gains a `flavor` column.
+Admins can enqueue an ISIS-only run that skips the LLDP rebuild via
+`runIngest({flavor: 'isis_cost'})`; the cron's `claimNextTrigger` path
+honours both `flavor` and `dryRun`.
+
+**Out of scope, still deferred.**
+
+- Per-vendor weight diagnostic and metric-scale normalization across
+  vendors — still v2.1.
+- Algorithm changes in `apps/web/lib/path.ts` — none in PR 2; PR 1's
+  algorithm was already correct, this PR fills the data side only.
