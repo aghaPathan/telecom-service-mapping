@@ -2,7 +2,18 @@ import type { Pool } from "pg";
 import cron from "node-cron";
 import { log } from "./logger.js";
 import { hasRunningRun, recordSkip } from "./runs.js";
-import { claimNextTrigger, attachRunToTrigger } from "./triggers.js";
+import {
+  claimNextTrigger,
+  attachRunToTrigger,
+  type TriggerFlavor,
+} from "./triggers.js";
+
+/**
+ * Signature of the run callback injected into `tickCron`. Receives the
+ * claimed trigger's flavor (defaults to `'full'` when there is no pending
+ * trigger — i.e. the nightly cron tick).
+ */
+export type CronRunFn = (flavor: TriggerFlavor) => Promise<number | null>;
 
 export type TickOutcome =
   | { action: "ran"; runId: number | null; triggerId: number | null }
@@ -28,7 +39,7 @@ export type TickOutcome =
  */
 export async function tickCron(
   pool: Pool,
-  runFn: () => Promise<number | null>,
+  runFn: CronRunFn,
 ): Promise<TickOutcome> {
   if (await hasRunningRun(pool)) {
     const reason = "prior run still in flight";
@@ -38,7 +49,8 @@ export async function tickCron(
   }
   const trigger = await claimNextTrigger(pool);
   try {
-    const runId = await runFn();
+    const flavor: TriggerFlavor = trigger?.flavor ?? "full";
+    const runId = await runFn(flavor);
     if (runId !== null && trigger) {
       await attachRunToTrigger(pool, trigger.id, runId);
     }
@@ -61,7 +73,7 @@ export async function tickCron(
 export function startScheduler(opts: {
   cronExpr: string;
   pool: Pool;
-  runFn: () => Promise<number | null>;
+  runFn: CronRunFn;
 }): { stop: () => void } {
   if (!cron.validate(opts.cronExpr)) {
     throw new Error(`Invalid cron expression: ${opts.cronExpr}`);

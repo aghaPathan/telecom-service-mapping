@@ -52,7 +52,7 @@ describe("cron tick (skip-when-overlapping)", () => {
   it("runs when no prior run is in flight", async () => {
     await pool.query("TRUNCATE ingestion_runs RESTART IDENTITY CASCADE");
     let ran = false;
-    const outcome = await tickCron(pool, async () => {
+    const outcome = await tickCron(pool, async (_flavor) => {
       ran = true;
       return null;
     });
@@ -66,7 +66,7 @@ describe("cron tick (skip-when-overlapping)", () => {
     const runningId = await startRun(pool, { dryRun: false });
 
     let ran = false;
-    const outcome = await tickCron(pool, async () => {
+    const outcome = await tickCron(pool, async (_flavor) => {
       ran = true;
       return null;
     });
@@ -114,7 +114,7 @@ describe("cron tick (skip-when-overlapping)", () => {
     });
 
     let ran = false;
-    const outcome = await tickCron(pool, async () => {
+    const outcome = await tickCron(pool, async (_flavor) => {
       ran = true;
       return null;
     });
@@ -124,7 +124,7 @@ describe("cron tick (skip-when-overlapping)", () => {
 
   it("surfaces but does not rethrow errors from the runFn", async () => {
     await pool.query("TRUNCATE ingestion_runs RESTART IDENTITY CASCADE");
-    const outcome = await tickCron(pool, async (): Promise<number | null> => {
+    const outcome = await tickCron(pool, async (_flavor): Promise<number | null> => {
       throw new Error("source unreachable");
     });
     expect(outcome.action).toBe("errored");
@@ -140,7 +140,7 @@ describe("cron tick (skip-when-overlapping)", () => {
       `INSERT INTO ingestion_triggers (requested_by) VALUES
        ('00000000-0000-0000-0000-000000000001')`,
     );
-    const runFn = vi.fn(async (): Promise<number | null> => {
+    const runFn = vi.fn(async (_flavor): Promise<number | null> => {
       const { rows } = await pool.query<{ id: string }>(
         `INSERT INTO ingestion_runs (status, dry_run) VALUES ('succeeded', false) RETURNING id`,
       );
@@ -170,7 +170,7 @@ describe("cron tick (skip-when-overlapping)", () => {
        ('00000000-0000-0000-0000-000000000001')`,
     );
     const runFn = vi.fn(
-      async (): Promise<number | null> => 0,
+      async (_flavor): Promise<number | null> => 0,
     );
     const outcome = await tickCron(pool, runFn);
     expect(outcome.action).toBe("skipped");
