@@ -196,16 +196,27 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
           await waitForNeo4j(isisDriver);
           const rawIsis = await readIsisCost(config.clickhouse);
           const canonical = canonicalizeIsisRows(rawIsis);
-          const { edges_matched } = await writeIsisWeights(
-            isisDriver,
-            canonical,
-          );
-          log("info", "isis_weights_written", {
-            rows_in: rawIsis.length,
-            rows_canonical: canonical.length,
-            edges_matched,
-            flavor: "isis_cost",
-          });
+          if (!opts.dryRun) {
+            const { edges_matched } = await writeIsisWeights(
+              isisDriver,
+              canonical,
+            );
+            log("info", "isis_weights_written", {
+              rows_in: rawIsis.length,
+              rows_canonical: canonical.length,
+              edges_matched,
+              flavor: "isis_cost",
+            });
+          } else {
+            // dry-run: query CH and report what would be written, but skip the
+            // graph write — mirrors the full-run dry-run contract where source
+            // reads happen but no Neo4j writes do.
+            log("info", "isis_weights_dry_run", {
+              rows_in: rawIsis.length,
+              rows_canonical: canonical.length,
+              flavor: "isis_cost",
+            });
+          }
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);
           isisWarnings.push({ kind: "isis_cost_failure", error: errorMsg });

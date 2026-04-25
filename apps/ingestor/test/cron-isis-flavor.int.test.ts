@@ -310,4 +310,52 @@ describe("tickCron honours trigger flavor (isis_cost path)", () => {
       "clickhouse_not_configured",
     );
   }, 120_000);
+
+  it("isis_cost flavor + dryRun: skips writeIsisWeights, edge weight stays null", async () => {
+    await pool.query("TRUNCATE ingestion_runs RESTART IDENTITY CASCADE");
+    await pool.query("TRUNCATE ingestion_triggers RESTART IDENTITY");
+    await seedGraph();
+    await seedClickHouse(42);
+
+    expect(await readEdgeWeight()).toBeNull();
+
+    const config = baseConfig({
+      clickhouse: {
+        url: chUrl,
+        user: "default",
+        password: "",
+        database: "lldp_data",
+        isisTable: "isis_cost",
+        timeoutMs: 30_000,
+      },
+    });
+
+    // Call runIngest directly (bypass tickCron) — dry-run + isis_cost flavor
+    // must finish 'succeeded' WITHOUT calling writeIsisWeights.
+    const result = await runIngest({
+      dryRun: true,
+      config,
+      flavor: "isis_cost",
+    });
+
+    expect(result.dryRun).toBe(true);
+
+    // Edge weight must remain null — writer was skipped.
+    expect(await readEdgeWeight()).toBeNull();
+
+    // Graph untouched.
+    expect(await countDevices()).toBe(2);
+
+    const { rows } = await pool.query<{
+      status: string;
+      warnings_json: unknown[];
+    }>(
+      `SELECT status, warnings_json FROM ingestion_runs ORDER BY id DESC LIMIT 1`,
+    );
+    expect(rows[0]!.status).toBe("succeeded");
+    const failures = (rows[0]!.warnings_json as unknown[]).filter(
+      (w) => (w as { kind?: string }).kind === "isis_cost_failure",
+    );
+    expect(failures).toHaveLength(0);
+  }, 120_000);
 });
