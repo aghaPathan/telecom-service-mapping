@@ -75,6 +75,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@tsm/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       bcryptjs:
         specifier: 2.4.3
         version: 2.4.3
@@ -121,9 +124,6 @@ importers:
       '@testcontainers/postgresql':
         specifier: 10.13.2
         version: 10.13.2
-      '@tsm/db':
-        specifier: workspace:*
-        version: link:../../packages/db
       '@types/bcryptjs':
         specifier: 2.4.6
         version: 2.4.6

@@ -7,9 +7,9 @@ WORKDIR /repo
 FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY apps/web/package.json apps/web/package.json
-# @tsm/db is a web devDep (used only by integration tests), but pnpm's
-# workspace resolver still needs its package.json present to validate the
-# lockfile — otherwise `deploy --prod` fails ERR_PNPM_WORKSPACE_PKG_NOT_FOUND.
+# @tsm/db is a web runtime dep (shared types/constants imported by API routes),
+# and pnpm's workspace resolver also needs its package.json present to validate
+# the lockfile — otherwise `deploy --prod` fails ERR_PNPM_WORKSPACE_PKG_NOT_FOUND.
 COPY packages/db/package.json packages/db/package.json
 # --ignore-scripts: web devDeps (testcontainers → ssh2 → cpu-features) try to
 # invoke node-gyp at install time. Alpine has no python/compiler, and these
@@ -23,7 +23,7 @@ COPY --from=deps /repo /repo
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.base.json ./
 COPY apps/web apps/web
 COPY packages/db packages/db
-RUN pnpm --filter web build
+RUN pnpm --filter @tsm/db build && pnpm --filter web build
 # Materialize a flat, prod-only app folder (vendors dependencies, resolves symlinks).
 RUN pnpm --filter web deploy --prod --ignore-scripts /deploy
 
