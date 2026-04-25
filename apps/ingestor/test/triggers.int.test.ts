@@ -68,6 +68,32 @@ describe("ingestion_triggers queue", () => {
       expect(third).toBeNull();
     });
 
+    it("returns flavor='full' by default and 'isis_cost' when explicitly set", async () => {
+      await pool.query(`TRUNCATE ingestion_triggers RESTART IDENTITY`);
+      await pool.query(
+        `INSERT INTO ingestion_triggers (requested_by) VALUES
+         ('00000000-0000-0000-0000-000000000001')`,
+      );
+      await pool.query(
+        `INSERT INTO ingestion_triggers (requested_by, flavor) VALUES
+         ('00000000-0000-0000-0000-000000000001', 'isis_cost')`,
+      );
+      const first = await claimNextTrigger(pool);
+      expect(first?.flavor).toBe("full");
+      const second = await claimNextTrigger(pool);
+      expect(second?.flavor).toBe("isis_cost");
+    });
+
+    it("rejects an invalid flavor via CHECK constraint", async () => {
+      await pool.query(`TRUNCATE ingestion_triggers RESTART IDENTITY`);
+      await expect(
+        pool.query(
+          `INSERT INTO ingestion_triggers (requested_by, flavor) VALUES
+           ('00000000-0000-0000-0000-000000000001', 'bogus')`,
+        ),
+      ).rejects.toThrow();
+    });
+
     it("attachRunToTrigger writes the run_id", async () => {
       await pool.query(
         `TRUNCATE ingestion_triggers, ingestion_runs RESTART IDENTITY CASCADE`,

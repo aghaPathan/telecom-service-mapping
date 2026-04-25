@@ -1,9 +1,15 @@
 import { getPool } from "@/lib/postgres";
+import { type TriggerFlavor } from "@tsm/db";
 
-export async function createTrigger(userId: string): Promise<number> {
+export { type TriggerFlavor, TRIGGER_FLAVORS, isTriggerFlavor } from "@tsm/db";
+
+export async function createTrigger(
+  userId: string,
+  flavor: TriggerFlavor = "full",
+): Promise<number> {
   const { rows } = await getPool().query<{ id: string }>(
-    `INSERT INTO ingestion_triggers (requested_by) VALUES ($1) RETURNING id`,
-    [userId],
+    `INSERT INTO ingestion_triggers (requested_by, flavor) VALUES ($1, $2) RETURNING id`,
+    [userId, flavor],
   );
   return Number(rows[0]!.id);
 }

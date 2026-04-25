@@ -1,6 +1,9 @@
 import { requireRole } from "@/lib/rbac";
 import { getPool } from "@/lib/postgres";
+import { getIsisFreshness, type IsisFreshness } from "@/lib/isis-status";
+import { log } from "@/lib/logger";
 import { RunNowButton } from "./run-now-button";
+import { IsisFreshnessBadge } from "./isis-freshness-badge";
 
 export const dynamic = "force-dynamic";
 
@@ -23,12 +26,29 @@ async function loadRecentRuns(): Promise<RunRow[]> {
   return rows;
 }
 
+async function safeIsisFreshness(): Promise<IsisFreshness> {
+  try {
+    return await getIsisFreshness();
+  } catch (err) {
+    // Neo4j unreachable — render an empty-state badge so the rest of the
+    // admin page is still usable. Log the underlying error so operators
+    // can diagnose connectivity issues from the structured log stream.
+    const msg = err instanceof Error ? err.message : String(err);
+    log("error", "isis_freshness_failed", { error: msg });
+    return { latestObservedAt: null, coverageFraction: 0 };
+  }
+}
+
 export default async function AdminIngestionPage() {
   await requireRole("admin");
-  const runs = await loadRecentRuns();
+  const [runs, isis] = await Promise.all([
+    loadRecentRuns(),
+    safeIsisFreshness(),
+  ]);
   return (
     <main className="p-6 space-y-4">
       <h1 className="text-xl font-semibold">Ingestion</h1>
+      <IsisFreshnessBadge {...isis} />
       <RunNowButton />
       <table data-testid="recent-runs-table" className="text-sm">
         <thead>

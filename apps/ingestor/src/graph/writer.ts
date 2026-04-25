@@ -8,6 +8,7 @@ import type {
   TerminateEdge,
   ProtectedByEdge,
 } from "../services.js";
+import type { IsisCostRow } from "../source/isis-cost.js";
 
 const BATCH_SIZE = 5000;
 
@@ -519,6 +520,65 @@ export async function writeCidNodes(
     }
   }
   return count;
+}
+
+/**
+ * Apply observed ISIS edge weights onto existing `:CONNECTS_TO` edges.
+ *
+ * Match is orientation-agnostic: both physical orientations of the LLDP edge
+ * are checked against both orderings of the input row's interfaces. Edges
+ * with no incoming row are NEVER touched — `weight=null` is impossible by
+ * construction (the SET clause only fires when MATCH succeeds).
+ *
+ * Returns the number of `:CONNECTS_TO` edges that received an observed
+ * weight (summed across batches). The count equals distinct edges only
+ * when the caller has deduped input to one row per canonical pair (see
+ * `canonicalizeIsisRows`); without that, A→B and B→A inputs for the same
+ * physical edge each increment the count and the final weight is
+ * last-write-wins.
+ *
+ * NEVER log row contents — production hostnames per CLAUDE.md
+ * data-sensitivity rules.
+ */
+export async function writeIsisWeights(
+  driver: Driver,
+  rows: readonly IsisCostRow[],
+): Promise<{ edges_matched: number }> {
+  if (rows.length === 0) return { edges_matched: 0 };
+
+  let edges_matched = 0;
+  for (const batch of chunk(rows, BATCH_SIZE)) {
+    const session = driver.session();
+    try {
+      const payload = batch.map((r) => ({
+        a: r.device_a_name,
+        b: r.device_b_name,
+        if_a: r.device_a_interface,
+        if_b: r.device_b_interface,
+        weight: r.weight,
+        observed_at: r.observed_at.toISOString(),
+      }));
+      const res = await session.executeWrite((tx) =>
+        tx.run(
+          `UNWIND $batch AS r
+             MATCH (a:Device {name: r.a})-[e:CONNECTS_TO]-(b:Device {name: r.b})
+             WHERE (e.a_if = r.if_a AND e.b_if = r.if_b)
+                OR (e.a_if = r.if_b AND e.b_if = r.if_a)
+             SET e.weight             = toFloat(r.weight),
+                 e.weight_source      = 'observed',
+                 e.weight_observed_at = datetime(r.observed_at)
+             RETURN count(e) AS matched`,
+          { batch: payload },
+        ),
+      );
+      const m = res.records[0]?.get("matched");
+      edges_matched +=
+        typeof m === "number" ? m : m?.toNumber?.() ?? 0;
+    } finally {
+      await session.close();
+    }
+  }
+  return { edges_matched };
 }
 
 /**

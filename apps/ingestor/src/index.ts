@@ -15,13 +15,16 @@ import { readServices } from "./source/services.js";
 import { readIsolations } from "./source/isolations.js";
 import { readDwdmRows } from "./source/dwdm.js";
 import { readCidRows } from "./source/cid.js";
+import { readIsisCost } from "./source/isis-cost.js";
 import { writeIsolations } from "./isolations-writer.js";
 import { dedupLldpRows, dedupDwdmRows } from "./dedup.js";
+import { canonicalizeIsisRows } from "./isis-cost-dedup.js";
 import { parseProtectionCids } from "./cid-parser.js";
 import { buildServicesGraph } from "./services.js";
-import { writeGraph, type SitePortalRow, type CidProps } from "./graph/writer.js";
+import { writeGraph, writeIsisWeights, type SitePortalRow, type CidProps } from "./graph/writer.js";
 import { startRun, finishRun } from "./runs.js";
 import { startScheduler, tickCron } from "./cron.js";
+import type { TriggerFlavor } from "./triggers.js";
 import {
   loadResolverConfigFromDir,
   resolveRole,
@@ -39,6 +42,13 @@ export type RunIngestOpts = {
    * Defaults to `<repo_root>/config`. Integration tests pass a tmp dir.
    */
   resolverConfigDir?: string;
+  /**
+   * Trigger flavor. Defaults to `'full'` (nightly cron / no trigger). When
+   * `'isis_cost'`, runIngest skips LLDP / DWDM / sites / services / writeGraph
+   * and only runs the ISIS-cost stage against the existing graph — for
+   * operator-driven on-demand weight refreshes between full ingests.
+   */
+  flavor?: TriggerFlavor;
 };
 
 function defaultConfigDir(): string {
@@ -155,8 +165,104 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
     };
   }
 
+  const flavor: TriggerFlavor = opts.flavor ?? "full";
   const runId = await startRun(pool, { dryRun: opts.dryRun });
-  log("info", "run_started", { runId, dryRun: opts.dryRun });
+  log("info", "run_started", { runId, dryRun: opts.dryRun, flavor });
+
+  // ISIS-cost-only flavor (issue #67): operator-triggered on-demand weight
+  // refresh. Skip every source-DB read and the full graph rebuild — just
+  // pull from ClickHouse and SET weights on existing :CONNECTS_TO edges.
+  // ALWAYS finishes succeeded; CH outages or misconfig become warnings so
+  // the trigger row gets a non-null run_id and the UI can surface the issue.
+  if (flavor === "isis_cost") {
+    let isisDriver: Driver | null = null;
+    const isisWarnings: unknown[] = [];
+    try {
+      if (!config.clickhouse) {
+        isisWarnings.push({
+          kind: "isis_cost_failure",
+          error: "clickhouse_not_configured",
+        });
+        log("warn", "isis_weights_skipped", {
+          reason: "clickhouse_not_configured",
+        });
+      } else {
+        try {
+          isisDriver = neo4j.driver(
+            config.NEO4J_URI,
+            neo4j.auth.basic(config.NEO4J_USER, config.NEO4J_PASSWORD),
+            { connectionAcquisitionTimeout: 10_000 },
+          );
+          await waitForNeo4j(isisDriver);
+          const rawIsis = await readIsisCost(config.clickhouse);
+          const canonical = canonicalizeIsisRows(rawIsis);
+          if (!opts.dryRun) {
+            const { edges_matched } = await writeIsisWeights(
+              isisDriver,
+              canonical,
+            );
+            log("info", "isis_weights_written", {
+              rows_in: rawIsis.length,
+              rows_canonical: canonical.length,
+              edges_matched,
+              flavor: "isis_cost",
+            });
+          } else {
+            // dry-run: query CH and report what would be written, but skip the
+            // graph write — mirrors the full-run dry-run contract where source
+            // reads happen but no Neo4j writes do.
+            log("info", "isis_weights_dry_run", {
+              rows_in: rawIsis.length,
+              rows_canonical: canonical.length,
+              flavor: "isis_cost",
+            });
+          }
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          isisWarnings.push({ kind: "isis_cost_failure", error: errorMsg });
+          log("warn", "isis_weights_failed", { error: errorMsg });
+        }
+      }
+
+      await finishRun(pool, runId, {
+        status: "succeeded",
+        source_rows_read: 0,
+        rows_dropped_null_b: 0,
+        rows_dropped_self_loop: 0,
+        rows_dropped_anomaly: 0,
+        graph_nodes_written: 0,
+        graph_edges_written: 0,
+        sites_loaded: 0,
+        services_loaded: 0,
+        terminate_edges: 0,
+        located_at_edges: 0,
+        protected_by_edges: 0,
+        warnings: isisWarnings,
+      });
+      log("info", "run_finished", { runId, flavor: "isis_cost" });
+      return {
+        runId,
+        dryRun: opts.dryRun,
+        sourceRows: 0,
+        dropped: { null_b: 0, self_loop: 0, anomaly: 0 },
+        warnings: isisWarnings,
+        graph: {
+          nodes: 0,
+          edges: 0,
+          sites: 0,
+          services: 0,
+          terminate_edges: 0,
+          located_at_edges: 0,
+          protected_by_edges: 0,
+          cid_nodes: 0,
+          dwdm_edges: 0,
+        },
+      };
+    } finally {
+      if (isisDriver) await isisDriver.close();
+      await closePool();
+    }
+  }
 
   let driver: Driver | null = null;
   try {
@@ -345,6 +451,32 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
     );
     log("info", "graph_written", counts);
 
+    // ISIS-cost stage (issue #67): runs AFTER the LLDP graph write so the
+    // :CONNECTS_TO edges already exist. Failures here MUST NOT fail the
+    // overall run — ClickHouse is an optional weight source. Errors are
+    // appended to ingestion_runs.warnings_json as `{kind:'isis_cost_failure', ...}`
+    // and existing edge weights are left untouched (the writer only SETs
+    // `weight` when MATCH succeeds, so a thrown error never half-writes).
+    const isisWarnings: unknown[] = [];
+    if (config.clickhouse) {
+      try {
+        const rawIsis = await readIsisCost(config.clickhouse);
+        const canonical = canonicalizeIsisRows(rawIsis);
+        const { edges_matched } = await writeIsisWeights(driver, canonical);
+        log("info", "isis_weights_written", {
+          rows_in: rawIsis.length,
+          rows_canonical: canonical.length,
+          edges_matched,
+        });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        isisWarnings.push({ kind: "isis_cost_failure", error: errorMsg });
+        log("warn", "isis_weights_failed", { error: errorMsg });
+      }
+    } else {
+      log("info", "isis_weights_skipped", { reason: "clickhouse_unconfigured" });
+    }
+
     await finishRun(pool, runId, {
       status: "succeeded",
       source_rows_read: rows.length,
@@ -358,7 +490,12 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       terminate_edges: counts.terminate_edges,
       located_at_edges: counts.located_at_edges,
       protected_by_edges: counts.protected_by_edges,
-      warnings: [...dedup.warnings, ...resolverWarnings, ...dwdmWarnings],
+      warnings: [
+        ...dedup.warnings,
+        ...resolverWarnings,
+        ...dwdmWarnings,
+        ...isisWarnings,
+      ],
     });
     log("info", "run_finished", { runId });
 
@@ -405,8 +542,10 @@ async function runScheduled(): Promise<void> {
   let handle: { stop: () => void } | null = null;
   try {
     await migrate(config.DATABASE_URL);
-    const runFn = async (): Promise<number | null> => {
-      const result = await runIngest({ dryRun: false, config });
+    const runFn = async (
+      flavor: TriggerFlavor,
+    ): Promise<number | null> => {
+      const result = await runIngest({ dryRun: false, config, flavor });
       return result.runId;
     };
     log("info", "ingestor_cron_mode", { cron: config.INGEST_CRON });
