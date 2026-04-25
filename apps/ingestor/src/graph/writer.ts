@@ -1,6 +1,6 @@
 import type { Driver } from "neo4j-driver";
 import { parseHostname } from "@tsm/db";
-import type { DeviceProps, LinkProps } from "../dedup.js";
+import type { DeviceProps, DwdmEdge, LinkProps } from "../dedup.js";
 import type { ResolverConfig } from "../resolver.js";
 import type { SiteCoords } from "../sites-coords.js";
 import type {
@@ -61,6 +61,8 @@ export type GraphWriteInput = {
   protections: readonly ProtectedByEdge[];
   /** :CID node properties — protection_cids already parsed via parseProtectionCids. */
   cids: readonly CidProps[];
+  /** Deduped DWDM edges (from `dedupDwdmRows`). Direction is canonical lesser→greater. */
+  dwdm_edges: readonly DwdmEdge[];
 };
 
 /**
@@ -90,6 +92,7 @@ export type GraphWriteCounts = {
   located_at_edges: number;
   protected_by_edges: number;
   cid_nodes: number;
+  dwdm_edges: number;
 };
 
 /**
@@ -272,6 +275,11 @@ export async function writeGraph(
 
   // Phase 4b: :CID nodes (V1 contract rule #28 — MERGE-upsert by `cid`).
   const cid_nodes = await writeCidNodes(driver, data.cids);
+
+  // Phase 4c: :DWDM_LINK edges. Endpoints MUST already exist as :Device — if
+  // either side is missing (LLDP didn't see the DWDM box) the row is silently
+  // skipped. The skip count is implicit: returned count < input length.
+  const dwdm_edges = await writeDwdmEdges(driver, data.dwdm_edges);
 
   // Phase 5: sites — union of sitesportal rows and the sites derived from
   // device names. Portal rows supply category/url; derived-only sites get
@@ -468,6 +476,7 @@ export async function writeGraph(
     located_at_edges,
     protected_by_edges,
     cid_nodes,
+    dwdm_edges,
   };
 }
 
@@ -512,3 +521,52 @@ export async function writeCidNodes(
   return count;
 }
 
+/**
+ * Write `:DWDM_LINK` edges between existing `:Device` nodes. Uses MATCH (not
+ * MERGE) for both endpoints — if either side is missing the row is silently
+ * skipped. Direction is canonical lesser→greater per `DwdmEdge.src/dst`.
+ *
+ * Returns the count of edges actually written (sum of `count(r)` per batch).
+ */
+export async function writeDwdmEdges(
+  driver: Driver,
+  edges: readonly DwdmEdge[],
+): Promise<number> {
+  let count = 0;
+  for (const batch of chunk(edges, BATCH_SIZE)) {
+    const session = driver.session();
+    try {
+      const payload = batch.map((e) => ({
+        src: e.src,
+        dst: e.dst,
+        src_interface: e.src_interface,
+        dst_interface: e.dst_interface,
+        ring: e.ring,
+        snfn_cids: e.snfn_cids,
+        mobily_cids: e.mobily_cids,
+        span_name: e.span_name,
+      }));
+      const res = await session.executeWrite((tx) =>
+        tx.run(
+          `UNWIND $batch AS row
+             MATCH (a:Device {name: row.src})
+             MATCH (b:Device {name: row.dst})
+             MERGE (a)-[r:DWDM_LINK]->(b)
+             SET r.ring          = row.ring,
+                 r.snfn_cids     = row.snfn_cids,
+                 r.mobily_cids   = row.mobily_cids,
+                 r.span_name     = row.span_name,
+                 r.src_interface = row.src_interface,
+                 r.dst_interface = row.dst_interface
+             RETURN count(r) AS n`,
+          { batch: payload },
+        ),
+      );
+      const n = res.records[0]?.get("n");
+      count += typeof n === "number" ? n : n?.toNumber?.() ?? 0;
+    } finally {
+      await session.close();
+    }
+  }
+  return count;
+}

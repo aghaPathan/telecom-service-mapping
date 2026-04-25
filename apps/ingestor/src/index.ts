@@ -297,10 +297,11 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
         services: svcGraph.services,
         terminates: svcGraph.terminates,
         protections: svcGraph.protections,
-        // PR 1 of #61: CID node wiring lands in D4 (cron.ts / index.ts
-        // source reads). Empty array here keeps typecheck green until then —
-        // writer phase is a no-op on empty input.
+        // PR 1 of #61: CID node + DWDM edge wiring lands in D4 (cron.ts /
+        // index.ts source reads). Empty arrays here keep typecheck green
+        // until then — writer phases are no-ops on empty input.
         cids: [],
+        dwdm_edges: [],
       },
       resolverCfg,
     );

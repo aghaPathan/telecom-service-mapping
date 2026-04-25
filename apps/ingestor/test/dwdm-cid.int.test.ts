@@ -4,20 +4,24 @@ import neo4j, { type Driver } from "neo4j-driver";
 
 import {
   writeCidNodes,
+  writeDwdmEdges,
   type CidProps,
 } from "../src/graph/writer.ts";
+import { dedupDwdmRows } from "../src/dedup.ts";
 import { parseProtectionCids } from "../src/cid-parser.ts";
+import { dwdm50 } from "./fixtures/dwdm-50.ts";
 import { cid50 } from "./fixtures/cid-50.ts";
 
 /**
- * Integration test for PR 1 of #61 (D2): MERGE :CID nodes (V1 contract
- * rule #28 — idempotent upsert by `cid`). Uses a real Neo4j 5
- * testcontainer; the helper is exercised directly so we don't need the
- * full LLDP pipeline.
+ * Integration test for PR 1 of #61 (D2 + D3): MERGE :CID nodes (rule #28
+ * idempotency) and MERGE :DWDM_LINK edges (skip when endpoint device is
+ * missing). Uses a real Neo4j 5 testcontainer; helpers are exercised
+ * directly so we don't need to spin up the full LLDP pipeline to seed
+ * `:Device` nodes.
  *
  * SECURITY: fixtures are synthetic XX-* hostnames. Never log row contents.
  */
-describe("writeCidNodes (testcontainer Neo4j)", () => {
+describe("writeCidNodes + writeDwdmEdges (testcontainer Neo4j)", () => {
   let neo4jC: StartedTestContainer;
   let driver: Driver;
   const neoUser = "neo4j";
@@ -65,6 +69,34 @@ describe("writeCidNodes (testcontainer Neo4j)", () => {
       await session.close();
     }
   });
+
+  // Materialize the device-name set referenced by dwdm50 (both src + dst, so
+  // everything that survived dedup). Used by tests that want every edge
+  // writable.
+  function dwdmDeviceNames(): string[] {
+    const dedup = dedupDwdmRows(dwdm50);
+    const set = new Set<string>();
+    for (const e of dedup.edges) {
+      set.add(e.src);
+      set.add(e.dst);
+    }
+    return [...set];
+  }
+
+  async function seedDevices(names: readonly string[]): Promise<void> {
+    const session = driver.session();
+    try {
+      await session.executeWrite((tx) =>
+        tx.run(
+          `UNWIND $batch AS name
+             MERGE (:Device {name: name})`,
+          { batch: names },
+        ),
+      );
+    } finally {
+      await session.close();
+    }
+  }
 
   function asCidProps(): CidProps[] {
     return cid50.map((r) => ({
@@ -116,6 +148,76 @@ describe("writeCidNodes (testcontainer Neo4j)", () => {
         { cid: "CID-A24" },
       );
       expect(nanProps.records[0]!.get("p")).toEqual([]);
+    } finally {
+      await session.close();
+    }
+  }, 60_000);
+
+  it(":DWDM_LINK edges: writes 27 deduped edges with all endpoints seeded", async () => {
+    const dedup = dedupDwdmRows(dwdm50);
+    expect(dedup.edges).toHaveLength(27);
+
+    await seedDevices(dwdmDeviceNames());
+
+    const written = await writeDwdmEdges(driver, dedup.edges);
+    expect(written).toBe(27);
+
+    const session = driver.session();
+    try {
+      const r = await session.run(
+        "MATCH ()-[r:DWDM_LINK]->() RETURN count(r) AS n",
+      );
+      expect(r.records[0]!.get("n").toNumber()).toBe(27);
+
+      // Property check on a known symmetric-pair edge (i=3):
+      //   src = XX-AAA-DWDM-03, dst = XX-BBB-DWDM-03
+      //   ring = RING-A, span = ' -  LD' stripped → '' (per stripSpanSuffix)
+      //   snfn = "CID-A06 CID-A07" parsed list, mobily = null → []
+      const edge = await session.run(
+        `MATCH (a:Device {name: $a})-[r:DWDM_LINK]->(b:Device {name: $b})
+           RETURN r.ring AS ring,
+                  r.snfn_cids AS snfn,
+                  r.mobily_cids AS mobily,
+                  r.span_name AS span`,
+        { a: "XX-AAA-DWDM-03", b: "XX-BBB-DWDM-03" },
+      );
+      const rec = edge.records[0]!;
+      expect(rec.get("ring")).toBe("RING-A");
+      expect(rec.get("snfn")).toEqual(["CID-A06", "CID-A07"]);
+      expect(rec.get("mobily")).toEqual([]);
+      // ' -  LD' suffix at index 0 → slice(0,0) = '' → trim → ''.
+      expect(rec.get("span")).toBe("");
+
+      // Direction: stored canonical lesser → greater.
+      const reversed = await session.run(
+        `MATCH (a:Device {name: $a})<-[:DWDM_LINK]-(b:Device {name: $b})
+           RETURN count(*) AS n`,
+        { a: "XX-AAA-DWDM-03", b: "XX-BBB-DWDM-03" },
+      );
+      expect(reversed.records[0]!.get("n").toNumber()).toBe(0);
+    } finally {
+      await session.close();
+    }
+  }, 60_000);
+
+  it(":DWDM_LINK edges: silently skips rows whose endpoint device is missing", async () => {
+    const dedup = dedupDwdmRows(dwdm50);
+    const allNames = dwdmDeviceNames();
+    // Seed only the first half of the device set — every edge whose other
+    // endpoint is in the dropped half must be skipped.
+    const half = allNames.slice(0, Math.floor(allNames.length / 2));
+    await seedDevices(half);
+
+    const written = await writeDwdmEdges(driver, dedup.edges);
+    expect(written).toBeLessThan(dedup.edges.length);
+    expect(written).toBeGreaterThanOrEqual(0);
+
+    const session = driver.session();
+    try {
+      const r = await session.run(
+        "MATCH ()-[r:DWDM_LINK]->() RETURN count(r) AS n",
+      );
+      expect(r.records[0]!.get("n").toNumber()).toBe(written);
     } finally {
       await session.close();
     }
