@@ -3,15 +3,14 @@ import { requireRole } from "@/lib/rbac";
 import { log } from "@/lib/logger";
 import {
   parseTopologyQuery,
-  hopsToGraphDTO,
   applyUpeClustering,
   runEgoGraph,
   runCoreOverview,
+  runTopologyPath,
   type GraphNodeDTO,
   type GraphEdgeDTO,
   type TopologyQuery,
 } from "@/lib/topology";
-import { runPath } from "@/lib/path";
 
 export const dynamic = "force-dynamic";
 
@@ -168,20 +167,14 @@ export default async function TopologyPage({
 
   try {
     if (query.mode === "path") {
-      const path = await runPath({
-        kind: query.from.kind,
-        value: query.from.value,
+      const g = await runTopologyPath({
+        from: { kind: query.from.kind, value: query.from.value },
+        to: { kind: "device", value: query.to.value },
       });
-      if (path.status === "ok") {
-        graph = hopsToGraphDTO(path.hops);
+      if (g.nodes.length === 0) {
+        note = `No path from ${query.from.kind}:${query.from.value} to device:${query.to.value}.`;
       } else {
-        note = `No path found (${path.reason}).`;
-      }
-      // MVP: `to` is advisory; trace runs from `from` to the nearest core.
-      if (note === null) {
-        note = `MVP: 'to' is advisory — trace runs from ${query.from.kind}:${query.from.value} to the nearest core.`;
-      } else {
-        note = `${note} MVP: 'to' is advisory.`;
+        graph = g;
       }
     } else if (query.mode === "ego") {
       const ego = await runEgoGraph({

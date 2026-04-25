@@ -42,6 +42,7 @@ const { topologyMock, pathMock } = vi.hoisted(() => {
       })),
       runEgoGraph: vi.fn<(args: unknown) => Promise<unknown>>(),
       runCoreOverview: vi.fn<() => Promise<CoreResult>>(async () => empty),
+      runTopologyPath: vi.fn<(args: unknown) => Promise<{ nodes: unknown[]; edges: unknown[] }>>(),
     },
     pathMock: {
       runPath: vi.fn<(args: unknown) => Promise<unknown>>(),
@@ -95,11 +96,7 @@ describe("TopologyPage", () => {
       cluster: null,
       include_transport: true,
     });
-    pathMock.runPath.mockResolvedValue({
-      status: "no_path",
-      reason: "island",
-      unreached_at: null,
-    });
+    topologyMock.runTopologyPath.mockResolvedValue({ nodes: [], edges: [] });
     const html = await renderPage({ from: "device:A", to: "device:B" });
     expect(html).toContain('data-testid="topology-note"');
     expect(html).not.toContain('data-testid="topology-error"');

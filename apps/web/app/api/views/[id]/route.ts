@@ -52,7 +52,10 @@ async function audit(
 
 async function executePayload(view: SavedView) {
   if (view.payload.kind === "path") {
-    return { kind: "path" as const, result: await runPath(view.payload.query) };
+    return {
+      kind: "path" as const,
+      result: await runPath({ ...view.payload.query, to: undefined }),
+    };
   }
   return {
     kind: "downstream" as const,

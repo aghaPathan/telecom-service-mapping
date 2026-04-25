@@ -219,6 +219,40 @@ test.describe.serial("/topology (#38) — path, ego, and cluster modes", () => {
     await expect(cluster).toContainText("4");
   });
 
+  test("topology with from+to renders device-to-device path", async ({
+    page,
+  }) => {
+    // #60 — `to=device:...` makes /topology render an A→B corridor rather
+    // than a to-core trace. BIG_UPE_1 and BIG_UPE_2 are both level-2 UPEs
+    // hanging off BIG_CORE, so the seeded graph yields a 3-hop path
+    // UPE_1 → BIG_CORE → UPE_2 (same-level endpoints, mid-tier in between).
+    await loginViaForm(page, VIEWER.email, VIEWER.password);
+    await page.waitForURL((u) => !u.pathname.startsWith("/login"));
+
+    await page.goto(
+      `/topology?from=device:${BIG_UPE_1}&to=device:${BIG_UPE_2}`,
+    );
+    await page.getByTestId("graph-canvas").waitFor({ state: "visible" });
+
+    // Both endpoints render as device nodes — not just the nearest-core hop.
+    await expect(
+      page.locator('[data-testid="graph-device-node"]', {
+        hasText: BIG_UPE_1,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.locator('[data-testid="graph-device-node"]', {
+        hasText: BIG_UPE_2,
+      }),
+    ).toBeVisible();
+    // 3 hops total: UPE_1 → CORE → UPE_2.
+    await expect(page.getByTestId("graph-device-node")).toHaveCount(3);
+
+    // The pre-#60 to-core "advisory" copy must be gone — /topology with
+    // `to=` is now an authoritative device-to-device render.
+    await expect(page.getByText(/advisory/i)).toHaveCount(0);
+  });
+
   test("URL state round-trips after reload", async ({ page }) => {
     await loginViaForm(page, VIEWER.email, VIEWER.password);
     await page.waitForURL((u) => !u.pathname.startsWith("/login"));

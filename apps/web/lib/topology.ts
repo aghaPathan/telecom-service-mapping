@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PathQuery, type Hop, type DeviceRef } from "@/lib/path";
+import { PathQuery, runPath, type Hop, type DeviceRef } from "@/lib/path";
 import { getDriver } from "@/lib/neo4j";
 import {
   UPE_ROLE,
@@ -316,6 +316,27 @@ export async function runEgoGraph(args: {
   } finally {
     await session.close();
   }
+}
+
+// ---------- Topology path resolver ----------
+
+export type TopologyPathInput = {
+  from: { kind: "device" | "service"; value: string };
+  to: { kind: "device"; value: string };
+};
+
+export async function runTopologyPath(
+  input: TopologyPathInput,
+): Promise<{ nodes: GraphNodeDTO[]; edges: GraphEdgeDTO[] }> {
+  const path = await runPath({
+    kind: input.from.kind,
+    value: input.from.value,
+    to: { value: input.to.value },
+  });
+  if (path.status !== "ok") {
+    return { nodes: [], edges: [] };
+  }
+  return hopsToGraphDTO(path.hops);
 }
 
 export type CoreOverviewResult = {

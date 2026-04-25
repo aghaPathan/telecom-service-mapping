@@ -48,6 +48,41 @@ async function seed(driver: Driver) {
   }
 }
 
+async function seedWeighted(driver: Driver) {
+  const session = driver.session();
+  try {
+    await session.run(
+      `MATCH (n) DETACH DELETE n`, // isolate weighted fixtures from the main seed
+    );
+    await session.run(
+      "CREATE CONSTRAINT device_name_unique IF NOT EXISTS FOR (d:Device) REQUIRE d.name IS UNIQUE",
+    );
+    await session.run(
+      "CREATE INDEX device_level IF NOT EXISTS FOR (d:Device) ON (d.level)",
+    );
+    // Two routes from A (level 2) to Core (level 1):
+    //   A -[w=10]-> B -[w=10]-> Core   (2 hops, total weight 20)
+    //   A -[w=1]->  C -[w=1]->  D -[w=1]-> Core   (3 hops, total weight 3)
+    // Min-hop chooses the 2-hop route; min-weight must choose the 3-hop route.
+    await session.run(
+      `CREATE
+        (a:Device:UPE  {name:'A',     role:'UPE',  level:2, site:'S', domain:'D'}),
+        (b:Device:UPE  {name:'B',     role:'UPE',  level:2, site:'S', domain:'D'}),
+        (c:Device:UPE  {name:'C',     role:'UPE',  level:2, site:'S', domain:'D'}),
+        (d:Device:UPE  {name:'D',     role:'UPE',  level:2, site:'S', domain:'D'}),
+        (core:Device:CORE {name:'Core', role:'CORE', level:1, site:'S', domain:'D'}),
+        (a)-[:CONNECTS_TO {a_if:'a-b', b_if:'b-a', weight: 10.0}]->(b),
+        (b)-[:CONNECTS_TO {a_if:'b-core', b_if:'core-b', weight: 10.0}]->(core),
+        (a)-[:CONNECTS_TO {a_if:'a-c', b_if:'c-a', weight: 1.0}]->(c),
+        (c)-[:CONNECTS_TO {a_if:'c-d', b_if:'d-c', weight: 1.0}]->(d),
+        (d)-[:CONNECTS_TO {a_if:'d-core', b_if:'core-d', weight: 1.0}]->(core)
+      `,
+    );
+  } finally {
+    await session.close();
+  }
+}
+
 beforeAll(async () => {
   neo4jC = await new GenericContainer("neo4j:5-community")
     .withEnvironment({ NEO4J_AUTH: `${NEO_USER}/${NEO_PASS}` })
@@ -79,7 +114,7 @@ afterAll(async () => {
 describe("runPath against live Neo4j", () => {
   it("device start traces to the core", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "device", value: "Customer" });
+    const r = await runPath({ kind: "device", value: "Customer", to: undefined });
     expect(r.status).toBe("ok");
     if (r.status !== "ok") throw new Error();
     expect(r.hops.map((h) => h.name)).toEqual(["Customer", "CSG", "UPE", "Core1"]);
@@ -88,7 +123,7 @@ describe("runPath against live Neo4j", () => {
 
   it("service start resolves to source endpoint and traces to the core", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "service", value: "C1" });
+    const r = await runPath({ kind: "service", value: "C1", to: undefined });
     expect(r.status).toBe("ok");
     if (r.status !== "ok") throw new Error();
     expect(r.hops[0]!.name).toBe("CSG");
@@ -97,7 +132,7 @@ describe("runPath against live Neo4j", () => {
 
   it("island device returns no_path with reason island", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "device", value: "Island" });
+    const r = await runPath({ kind: "device", value: "Island", to: undefined });
     expect(r.status).toBe("no_path");
     if (r.status !== "no_path") throw new Error();
     expect(r.reason).toBe("island");
@@ -108,7 +143,7 @@ describe("runPath against live Neo4j", () => {
 
   it("unknown device returns no_path with reason start_not_found", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "device", value: "GHOST-NO-SUCH" });
+    const r = await runPath({ kind: "device", value: "GHOST-NO-SUCH", to: undefined });
     expect(r.status).toBe("no_path");
     if (r.status !== "no_path") throw new Error();
     expect(r.reason).toBe("start_not_found");
@@ -117,7 +152,7 @@ describe("runPath against live Neo4j", () => {
 
   it("unknown service returns no_path with reason service_has_no_endpoint", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "service", value: "NO-SUCH-CID" });
+    const r = await runPath({ kind: "service", value: "NO-SUCH-CID", to: undefined });
     expect(r.status).toBe("no_path");
     if (r.status !== "no_path") throw new Error();
     expect(r.reason).toBe("service_has_no_endpoint");
@@ -125,7 +160,7 @@ describe("runPath against live Neo4j", () => {
 
   it("interface sanity: middle hop has both in_if and out_if, edges on ends are null", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "device", value: "Customer" });
+    const r = await runPath({ kind: "device", value: "Customer", to: undefined });
     expect(r.status).toBe("ok");
     if (r.status !== "ok") throw new Error();
     expect(r.hops[1]!.in_if).not.toBeNull();
@@ -145,7 +180,7 @@ describe("runPath against live Neo4j", () => {
 
   it("core device start returns zero-hop ok path with itself as the only hop", async () => {
     const { runPath } = await import("@/lib/path");
-    const r = await runPath({ kind: "device", value: "Core1" });
+    const r = await runPath({ kind: "device", value: "Core1", to: undefined });
     expect(r.status).toBe("ok");
     if (r.status !== "ok") throw new Error();
     expect(r.length).toBe(0);
@@ -154,5 +189,105 @@ describe("runPath against live Neo4j", () => {
     expect(r.hops[0]!.level).toBe(1);
     expect(r.hops[0]!.in_if).toBeNull();
     expect(r.hops[0]!.out_if).toBeNull();
+  });
+
+  it("picks min-weight path over min-hop when all edges are weighted", async () => {
+    await seedWeighted(adminDriver);
+    const { runPath } = await import("@/lib/path");
+    const res = await runPath({ kind: "device", value: "A", to: undefined });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.weighted).toBe(true);
+    expect(res.total_weight).toBe(3);
+    expect(res.hops.map((h) => h.name)).toEqual(["A", "C", "D", "Core"]);
+    // First hop has no inbound edge -> null; subsequent hops all w=1.
+    expect(res.hops.map((h) => h.edge_weight_in)).toEqual([null, 1, 1, 1]);
+  });
+
+  it("falls back to min-hop when any edge on the candidate set is unweighted", async () => {
+    // Same topology as seedWeighted but strip one weight on the 3-hop route.
+    await seedWeighted(adminDriver);
+    const s = adminDriver.session();
+    try {
+      await s.run(`MATCH ()-[r:CONNECTS_TO {a_if:'c-d'}]-() SET r.weight = null`);
+    } finally {
+      await s.close();
+    }
+    const { runPath } = await import("@/lib/path");
+    const res = await runPath({ kind: "device", value: "A", to: undefined });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.weighted).toBe(false);
+    expect(res.total_weight).toBeNull();
+    // Hop count preferred -> 2-hop A->B->Core path.
+    expect(res.hops.map((h) => h.name)).toEqual(["A", "B", "Core"]);
+    expect(res.hops.map((h) => h.edge_weight_in)).toEqual([null, null, null]);
+  });
+
+  async function seedDeviceToDevice(driver: Driver) {
+    const session = driver.session();
+    try {
+      await session.run(`MATCH (n) DETACH DELETE n`);
+      await session.run(
+        "CREATE CONSTRAINT device_name_unique IF NOT EXISTS FOR (d:Device) REQUIRE d.name IS UNIQUE",
+      );
+      await session.run(
+        "CREATE INDEX device_level IF NOT EXISTS FOR (d:Device) ON (d.level)",
+      );
+      // Two level-2 UPEs connected through a shared level-3 CSG.
+      // A monotonic-only predicate would force the path through core.
+      // Corridor predicate [min-1, max+1] = [1, 3] must keep the detour via CSG valid.
+      await session.run(
+        `CREATE
+          (a:Device:UPE {name:'A', role:'UPE', level:2, site:'S', domain:'D'}),
+          (b:Device:UPE {name:'B', role:'UPE', level:2, site:'S', domain:'D'}),
+          (mid:Device:CSG {name:'Mid', role:'CSG', level:3, site:'S', domain:'D'}),
+          (c:Device:CORE {name:'Core', role:'CORE', level:1, site:'S', domain:'D'}),
+          (a)-[:CONNECTS_TO {a_if:'a-mid', b_if:'mid-a'}]->(mid),
+          (mid)-[:CONNECTS_TO {a_if:'mid-b', b_if:'b-mid'}]->(b),
+          (a)-[:CONNECTS_TO {a_if:'a-core', b_if:'core-a'}]->(c),
+          (b)-[:CONNECTS_TO {a_if:'b-core', b_if:'core-b'}]->(c)
+        `,
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  it("device-to-device same-level corridor returns shortest A->Mid->B path", async () => {
+    await seedDeviceToDevice(adminDriver);
+    const { runPath } = await import("@/lib/path");
+    const res = await runPath({ kind: "device", value: "A", to: { value: "B" } });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.hops.map((h) => h.name)).toEqual(["A", "Mid", "B"]);
+    expect(res.length).toBe(2);
+  });
+
+  it("device-to-device across levels uses monotonic predicate", async () => {
+    await seedDeviceToDevice(adminDriver);
+    const { runPath } = await import("@/lib/path");
+    // A (level 2) -> Core (level 1): corridor collapses to the existing monotonic rule.
+    const res = await runPath({ kind: "device", value: "A", to: { value: "Core" } });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.hops.map((h) => h.name)).toEqual(["A", "Core"]);
+  });
+
+  it("device-to-device with missing target returns start_not_found, not island", async () => {
+    await seedDeviceToDevice(adminDriver);
+    const { runPath } = await import("@/lib/path");
+    const res = await runPath({
+      kind: "device",
+      value: "A",
+      to: { value: "Nonexistent" },
+    });
+    expect(res.status).toBe("no_path");
+    if (res.status !== "no_path") return;
+    // Missing target is a missing-endpoint case, not a topology disconnect.
+    // PathView renders start_not_found as "Device not found" — accurate copy
+    // for a d2d query whose `to` device doesn't exist.
+    expect(res.reason).toBe("start_not_found");
+    expect(res.unreached_at).toBeNull();
   });
 });

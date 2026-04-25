@@ -47,6 +47,8 @@ describe("PathResponse schema", () => {
     const r = PathResponse.parse({
       status: "ok",
       length: 2,
+      weighted: false,
+      total_weight: null,
       hops: [
         {
           name: "a",
@@ -56,6 +58,7 @@ describe("PathResponse schema", () => {
           domain: "D",
           in_if: null,
           out_if: "out-1",
+          edge_weight_in: null,
         },
         {
           name: "b",
@@ -65,6 +68,7 @@ describe("PathResponse schema", () => {
           domain: null,
           in_if: "in-1",
           out_if: "out-2",
+          edge_weight_in: null,
         },
         {
           name: "c",
@@ -74,6 +78,7 @@ describe("PathResponse schema", () => {
           domain: "D",
           in_if: "in-2",
           out_if: null,
+          edge_weight_in: null,
         },
       ],
     });
