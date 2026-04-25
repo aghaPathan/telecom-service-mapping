@@ -41,7 +41,7 @@ describe("readIsisCost", () => {
           CREATE TABLE lldp_data.isis_cost (
             Device_A_Name      Nullable(String),
             Device_A_Interface Nullable(String),
-            ISIS_COST          Int64,
+            ISIS_COST          Nullable(Int64),
             Device_B_Name      Nullable(String),
             Device_B_Interface Nullable(String),
             Vendor             String,
@@ -64,6 +64,8 @@ describe("readIsisCost", () => {
           { Device_A_Name: "DEV-A", Device_A_Interface: "Eth1", ISIS_COST: 99, Device_B_Name: "DEV-A", Device_B_Interface: "Eth1", Vendor: "Huawei", RecordDateTime: "2025-02-14 00:00:00" },
           // NULL Device_B_Name — must be dropped by SQL
           { Device_A_Name: "DEV-X", Device_A_Interface: "Eth9", ISIS_COST: 7, Device_B_Name: null, Device_B_Interface: "Eth9", Vendor: "Huawei", RecordDateTime: "2025-02-14 00:00:00" },
+          // NULL ISIS_COST — must be dropped by SQL (no silent zero-weight edge)
+          { Device_A_Name: "DEV-X", Device_A_Interface: "EthX", ISIS_COST: null, Device_B_Name: "DEV-Y", Device_B_Interface: "EthY", Vendor: "Huawei", RecordDateTime: "2025-02-14 00:00:00" },
         ],
       });
     } finally {
@@ -104,5 +106,17 @@ describe("readIsisCost", () => {
     expect(pair2).toBeDefined();
     expect(pair2!.weight).toBe(5);
     expect(pair2!.observed_at.toISOString()).toBe("2025-01-15T00:00:00.000Z");
+  });
+
+  it("dropping rows with NULL ISIS_COST", async () => {
+    const rows = await readIsisCost(cfg);
+    const nullCostPair = rows.find(
+      (r) => r.device_a_name === "DEV-X" && r.device_b_name === "DEV-Y",
+    );
+    expect(nullCostPair).toBeUndefined();
+    // No row should have a non-finite weight survive the mapper.
+    for (const r of rows) {
+      expect(Number.isFinite(r.weight)).toBe(true);
+    }
   });
 });
