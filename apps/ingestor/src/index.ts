@@ -13,10 +13,13 @@ import { readActiveLldpRows } from "./source/lldp.js";
 import { readSites } from "./source/sites.js";
 import { readServices } from "./source/services.js";
 import { readIsolations } from "./source/isolations.js";
+import { readDwdmRows } from "./source/dwdm.js";
+import { readCidRows } from "./source/cid.js";
 import { writeIsolations } from "./isolations-writer.js";
-import { dedupLldpRows } from "./dedup.js";
+import { dedupLldpRows, dedupDwdmRows } from "./dedup.js";
+import { parseProtectionCids } from "./cid-parser.js";
 import { buildServicesGraph } from "./services.js";
-import { writeGraph, type SitePortalRow } from "./graph/writer.js";
+import { writeGraph, type SitePortalRow, type CidProps } from "./graph/writer.js";
 import { startRun, finishRun } from "./runs.js";
 import { startScheduler, tickCron } from "./cron.js";
 import {
@@ -60,6 +63,8 @@ export type RunIngestResult = {
     terminate_edges: number;
     located_at_edges: number;
     protected_by_edges: number;
+    cid_nodes: number;
+    dwdm_edges: number;
   };
 };
 
@@ -144,6 +149,8 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
         terminate_edges: 0,
         located_at_edges: 0,
         protected_by_edges: 0,
+        cid_nodes: 0,
+        dwdm_edges: 0,
       },
     };
   }
@@ -183,6 +190,38 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       protections: svcGraph.protections.length,
       dropped: svcGraph.dropped,
     });
+
+    // DWDM stage (PR 1 of #61): read public.dwdm, dedup to canonical edges.
+    // SECURITY: never log row contents — real production hostnames + CIDs.
+    const dwdmRows = await readDwdmRows(config.DATABASE_URL_SOURCE);
+    log("info", "dwdm_rows_read", { count: dwdmRows.length });
+    const dwdmDedup = dedupDwdmRows(dwdmRows);
+    log("info", "dwdm_dedup_complete", {
+      edges: dwdmDedup.edges.length,
+      dropped: dwdmDedup.dropped,
+    });
+
+    // CID stage: read public.app_cid; transform raw `protection_cid` →
+    // parsed `protection_cids: string[]` per V1 contract rules #20, #21.
+    const cidRows = await readCidRows(config.DATABASE_URL_SOURCE);
+    log("info", "cid_rows_read", { count: cidRows.length });
+    const cidProps: CidProps[] = cidRows.map((r) => ({
+      cid: r.cid,
+      capacity: r.capacity,
+      source: r.source,
+      dest: r.dest,
+      bandwidth: r.bandwidth,
+      protection_type: r.protection_type,
+      protection_cids: parseProtectionCids(r.protection_cid),
+      mobily_cid: r.mobily_cid,
+      region: r.region,
+    }));
+
+    // DWDM dropped struct goes into warnings (no schema change to
+    // ingestion_runs — folded into the existing warnings_json column).
+    const dwdmWarnings: unknown[] = [
+      { kind: "dwdm_stage_summary", rows_read: dwdmRows.length, edges: dwdmDedup.edges.length, dropped: dwdmDedup.dropped },
+    ];
 
     // Load role/hierarchy config fresh every run (per PRD: edit YAML, re-ingest).
     const resolverCfg: ResolverConfig = loadResolverConfigFromDir(
@@ -253,7 +292,7 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
         terminate_edges: 0,
         located_at_edges: 0,
         protected_by_edges: 0,
-        warnings: [...dedup.warnings, ...resolverWarnings],
+        warnings: [...dedup.warnings, ...resolverWarnings, ...dwdmWarnings],
       });
       log("info", "run_finished_dry_run", { runId });
       return {
@@ -270,6 +309,8 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
           terminate_edges: 0,
           located_at_edges: 0,
           protected_by_edges: 0,
+          cid_nodes: 0,
+          dwdm_edges: 0,
         },
       };
     }
@@ -297,6 +338,8 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
         services: svcGraph.services,
         terminates: svcGraph.terminates,
         protections: svcGraph.protections,
+        cids: cidProps,
+        dwdm_edges: dwdmDedup.edges,
       },
       resolverCfg,
     );
@@ -315,7 +358,7 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       terminate_edges: counts.terminate_edges,
       located_at_edges: counts.located_at_edges,
       protected_by_edges: counts.protected_by_edges,
-      warnings: [...dedup.warnings, ...resolverWarnings],
+      warnings: [...dedup.warnings, ...resolverWarnings, ...dwdmWarnings],
     });
     log("info", "run_finished", { runId });
 

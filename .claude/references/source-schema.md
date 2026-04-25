@@ -19,7 +19,31 @@ Source DB access is **read-only only** via the `lldp_readonly` role (`default_tr
 
 ## `app_cid` — customer circuit master
 
-Columns: `cid`, `source`, `dest`, `bandwidth`, `protection_type`, `protection_cid`, `mobily_cid`, `region`.
+Columns:
+
+- `cid` (PK) — circuit identifier; primary key in V1, becomes the MERGE key on `:CID` nodes in V2 (contract rule #28).
+- `capacity` — link capacity (string, free-form).
+- `source`, `dest` — A-end / Z-end labels (free-form text; not normalized to device names in V1).
+- `bandwidth` — provisioned bandwidth (string).
+- `protection_type` — e.g. `1+1`, `unprotected`.
+- `protection_cid` — **raw** protection-CID string. V1 stringifies Python NaN to literal `'nan'`; both `'nan'` and empty → null per `parseProtectionCids` (contract rule #20). Multi-CID values are space-separated; V2 parses to a list preserving order (contract rule #21). V1 uses `.split()[0]` (the first element) as the display label. **In V2 this lives on `:CID` nodes as `protection_cids: string[]`, NOT on `:DWDM_LINK` edges** — see [ADR 0005](../../docs/decisions/0005-dwdm-data-model.md).
+- `mobily_cid` — operator-internal CID.
+- `region` — region code.
+
+## `public.dwdm` — DWDM topology source
+
+Columns (V1-confirmed via `dwdm_view.py:54-60`):
+
+- `device_a_name`, `device_a_interface`, `device_a_ip`
+- `device_b_name`, `device_b_interface`, `device_b_ip`
+- `"Ring"` — **CamelCase and double-quoted in V1's SQL**; Postgres folds unquoted identifiers to lowercase, so the quotes are load-bearing. Preserve the quoting in V2 readers (the projection in `apps/ingestor/src/source/dwdm.ts` aliases `"Ring" AS ring`).
+- `snfn_cids` — space-separated CID list (parsed via `parseCidList`).
+- `mobily_cids` — space-separated CID list (parsed via `parseCidList`).
+- `span_name` — carries one of two suffixes that must be stripped:
+  - ` -  LD` — **two spaces before LD** per V1 (contract rule #19).
+  - ` - NSR` — single space (contract rule #27; both branches run independently in V2, fixing V1's unreachable `elif`).
+
+V2 dedups on canonical unordered `{(device_a_name, device_b_name)}` (same rule as LLDP), drops self-loops and NULL `device_*_name`, and keeps the latest row on multi-row anomalies. `protection_cid` is **not** on this table — it's loaded from `app_cid` (above).
 
 ## `app_devicecid`
 

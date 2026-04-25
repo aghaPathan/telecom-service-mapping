@@ -1,6 +1,6 @@
 # Ingest Edge-Case Contract
 
-Last updated: 2026-04-24 (issue #59)
+Last updated: 2026-04-25 (issue #61, slice 4)
 
 This directory holds contract tests for the 31 V1 ingest-behavior rules that V2 must either replicate, correct, or deliberately reject. Every contract test title begins with a `rule[PORT|FIX|REJECT]:` prefix so a single grep produces a compliance matrix. Run the suite with `pnpm --filter ingestor test -- --run | grep 'rule[A-Z]'` to see which rules pass, which are pending, and whether any rule has silently lost coverage across refactors. Tests that cover rules deferred to later slices are not yet written; their rows use `—` in the Test file column. Later tasks (T2–T14) land the tests; Task 15 fills in the file column.
 
@@ -42,23 +42,23 @@ pnpm --filter ingestor test -- --run | grep '\brule' | sort
 | 16 | 8-digit numeric node name classified as `BusinessCustomer` | PORT | covered-in-this-pr | `apps/ingestor/test/resolver.test.ts` | T10 added `rulePORT: 8-digit numeric node classified as BusinessCustomer` |
 | 17 | RAN service code dictionary resolves 22 known codes | PORT | covered-in-this-pr | `apps/ingestor/test/resolver.test.ts` | T12 added `rulePORT: RAN service code dictionary resolves known codes` |
 | 18 | UPE neighbor suppression in topology rendering | PORT | covered-in-this-pr | `apps/ingestor/test/resolver.test.ts`, `apps/ingestor/test/ingest.int.test.ts` | UPE role resolution covered in T3 (resolver); UPE devices written + labeled in integration test; render-layer clustering in `apps/web/test/cluster.test.ts` |
-| 19 | span name ` -  LD` / ` - NSR` suffix stripping (both branches) | PORT | deferred | — | Needs CID loader — deferred to #61 (Slice 4 DWDM) |
-| 20 | protection CID string `'nan'` → null | PORT | deferred | — | Needs CID loader — deferred to #61 (Slice 4 DWDM) |
-| 21 | `protection_cid` space-split → first CID for DWDM protection paths | PORT | deferred | — | Needs CID loader — deferred to #61 (Slice 4 DWDM) |
+| 19 | span name ` -  LD` / ` - NSR` suffix stripping (both branches) | PORT | landed | `apps/ingestor/test/cid-parser.unit.test.ts` | `stripSpanSuffix` describe-block (rules #19, #27); tests "strips ' -  LD' suffix" and "strips both branches independently". NOTE: tests use `rule #N` markers in describe/it strings, not the `rulePORT:` prefix — they don't show in the `\brule` compliance grep. |
+| 20 | protection CID string `'nan'` → null | PORT | landed | `apps/ingestor/test/cid-parser.unit.test.ts` | `parseProtectionCids` describe-block; test "rule #20: 'nan' → []". Same prefix caveat as #19. |
+| 21 | `protection_cid` space-split → first CID for DWDM protection paths | PORT | landed | `apps/ingestor/test/cid-parser.unit.test.ts` | `parseProtectionCids` describe-block; test "rule #21: space-split preserving order, first element is V1's protection CID". V2 stores the full list; callers index `[0]`. Same prefix caveat as #19. |
 | 22 | `UPLINK_EXCLUDE_LIST` enforcement (RIPR / RGUX / RGUL / RGUF / RUFX / 2G / 3G / 4G / 5G) | PORT | deferred | — | Query-layer; deferred to #60 (Slice 3 weighted paths) |
 | 23 | main-graph = largest weakly-connected component threshold (configurable) | PORT | deferred | — | Query-layer (GDS WCC); deferred to #60 (Slice 3 weighted paths) |
 | 24 | `topology_devices_view` → `topology_devices_dynamic_view` fallback | PORT | N/A (current architecture) | — | V2 derives device inventory from app_lldp; no devices-view read stage exists. Follow-up: if an inventory-source stage is added later (e.g. for PRD isolations expansion), wire the static→dynamic fallback then. |
 | 25 | BNG Master/Slave failover | PORT | N/A | — | Only relevant if SAI Ping reconsidered; SAI Ping is PRD-Rejected — stays a no-op in V2 |
 | 26 | V1 `total_offline` filter used `status='Online'` — V2 must use `status='Offline'` | FIX | deferred | — | V2 has no OLT customer surface yet — deferred to #61 (Slice 4 / ClickHouse pending) |
-| 27 | V1 NSR-suffix `elif` branch was unreachable — V2 must execute both LD and NSR stripping | FIX | deferred | — | Depends on CID loader — deferred to #61 (Slice 4 DWDM) |
-| 28 | V1 `CID.objects.create()` had no dedup — V2 must use upsert / MERGE on CID | FIX | deferred | — | Depends on CID loader — deferred to #61 (Slice 4 DWDM) |
+| 27 | V1 NSR-suffix `elif` branch was unreachable — V2 must execute both LD and NSR stripping | FIX | landed | `apps/ingestor/test/cid-parser.unit.test.ts` | `stripSpanSuffix` describe-block (rules #19, #27); tests "strips ' - NSR' suffix (rule #27 — V1 elif was unreachable)" and "strips both branches independently". Prefix caveat as #19. |
+| 28 | V1 `CID.objects.create()` had no dedup — V2 must use upsert / MERGE on CID | FIX | landed | `apps/ingestor/test/dwdm-cid.int.test.ts` | Test ":CID nodes: MERGE-upsert is idempotent (rule #28)" against testcontainer Neo4j; second ingest of same input yields same node count. Prefix caveat as #19. |
 | 29 | V1 ClickHouse wrapper silently zeroed `NaN`/empty/`'NIL'` — V2 must not zero nulls | FIX | covered-in-this-pr | `apps/web/test/format.test.ts`, `apps/ingestor/test/ingest.int.test.ts` | `formatNullable` helper (T13) covers UI null→dash; regression guard (T14) confirms null vendor stays null in Neo4j |
 | 30 | V1 `LoginMiddleware` bypassed `/performance`, `/tools`, `/event`, `/api` — V2 keeps middleware strict | REJECT | N/A | — | V2 auth middleware has no bypass; no code path to test; documented only |
 | 31 | V1 "alarms = node-is-up" inverted-liveness / SSH-from-web SAI Ping as production feature | REJECT | N/A | — | Two related PRD rejections; V2 treats alarms as alarms; SSH-from-web rejected (redesign as operator CLI outside V2 scope) |
 
 ---
 
-**Covered in this PR: 19 rules (rules 1–18, 29). Deferred: 8 (rules 19–23, 26–28, see table). N/A: 4 (rules 24, 25, 30, 31). Total: 31.**
+**Landed across PRs (≤ #61 slice 4): 24 rules (1–18, 19–21, 27–29). Deferred: 3 (rules 22–23, 26 — see table). N/A: 4 (rules 24, 25, 30, 31). Total: 31.**
 
 ---
 
@@ -67,6 +67,7 @@ pnpm --filter ingestor test -- --run | grep '\brule' | sort
 | Status | Meaning |
 |---|---|
 | `covered-in-this-pr` | Code exists or is being written in this PR; test lands in T2–T14 |
+| `landed` | Code + test exist on `main` (or about to merge in the current PR); cited test file row holds the assertion |
 | `deferred` | Code or contract test deferred to a named later slice |
 | `N/A` | Rule has no applicable V2 code path; documented only |
 

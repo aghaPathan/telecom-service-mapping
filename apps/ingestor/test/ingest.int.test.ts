@@ -82,6 +82,7 @@ describe("ingest integration (testcontainers)", () => {
         );
         CREATE TABLE app_cid (
           cid              TEXT PRIMARY KEY,
+          capacity         TEXT,
           source           TEXT,
           dest             TEXT,
           bandwidth        TEXT,
@@ -89,6 +90,18 @@ describe("ingest integration (testcontainers)", () => {
           protection_cid   TEXT,
           mobily_cid       TEXT,
           region           TEXT
+        );
+        CREATE TABLE dwdm (
+          device_a_name      TEXT,
+          device_a_interface TEXT,
+          device_a_ip        TEXT,
+          device_b_name      TEXT,
+          device_b_interface TEXT,
+          device_b_ip        TEXT,
+          "Ring"             TEXT,
+          snfn_cids          TEXT,
+          mobily_cids        TEXT,
+          span_name          TEXT
         );
         CREATE TABLE app_devicecid (
           cid            TEXT,
@@ -112,12 +125,12 @@ describe("ingest integration (testcontainers)", () => {
       //   - SVC-4: protection_cid points at SVC-MISSING (unknown, dropped)
       //   - SVC-5: no source/dest columns — fallback to app_devicecid
       await sc.query(
-        `INSERT INTO app_cid (cid, source, dest, bandwidth, protection_type, protection_cid, mobily_cid, region) VALUES
-           ('SVC-1', 'XX-AAA-CORE-01', 'XX-BBB-UPE-01', '1G',  'linear',   'SVC-2',       'MCID-1', 'west'),
-           ('SVC-2', 'XX-AAA-CORE-02', 'XX-BBB-UPE-02', '10G', 'none',     null,          'MCID-2', 'west'),
-           ('SVC-3', 'XX-AAA-CORE-03', 'XX-BBB-UPE-03', '1G',  'linear',   'SVC-3',       'MCID-3', 'east'),
-           ('SVC-4', 'XX-AAA-CORE-04', 'XX-BBB-UPE-04', '1G',  'linear',   'SVC-MISSING', 'MCID-4', 'east'),
-           ('SVC-5', null,             null,             '1G', 'none',     null,          'MCID-5', 'south')`,
+        `INSERT INTO app_cid (cid, capacity, source, dest, bandwidth, protection_type, protection_cid, mobily_cid, region) VALUES
+           ('SVC-1', '1G',  'XX-AAA-CORE-01', 'XX-BBB-UPE-01', '1G',  'linear',   'SVC-2',       'MCID-1', 'west'),
+           ('SVC-2', '10G', 'XX-AAA-CORE-02', 'XX-BBB-UPE-02', '10G', 'none',     null,          'MCID-2', 'west'),
+           ('SVC-3', '1G',  'XX-AAA-CORE-03', 'XX-BBB-UPE-03', '1G',  'linear',   'SVC-3',       'MCID-3', 'east'),
+           ('SVC-4', '1G',  'XX-AAA-CORE-04', 'XX-BBB-UPE-04', '1G',  'linear',   'SVC-MISSING', 'MCID-4', 'east'),
+           ('SVC-5', '1G',  null,             null,             '1G', 'none',     null,          'MCID-5', 'south')`,
       );
       await sc.query(
         `INSERT INTO app_devicecid (cid, device_a_name, device_b_name) VALUES
@@ -185,6 +198,41 @@ describe("ingest integration (testcontainers)", () => {
            ('XX-ZZZ-STALE-01','Gi0/1','XX-ZZZ-STALE-02','Gi0/1', now(), false),
            ('XX-ZZZ-STALE-03','Gi0/1','XX-ZZZ-STALE-04','Gi0/1', now(), false)`,
       );
+
+      // PR 1 of #61: seed DWDM rows. Endpoints reuse CORE/UPE devices from
+      // the LLDP fixture so :DWDM_LINK edges find both :Device endpoints.
+      // One self-loop and one mirrored pair exercise dedup paths.
+      await sc.query(
+        `INSERT INTO dwdm (
+           device_a_name, device_a_interface, device_a_ip,
+           device_b_name, device_b_interface, device_b_ip,
+           "Ring", snfn_cids, mobily_cids, span_name
+         ) VALUES
+           ('XX-AAA-CORE-01', 'xe-1/0/0', '10.0.0.1',
+            'XX-BBB-UPE-01',  'xe-2/0/0', '10.0.0.2',
+            'RING-A', 'SNFN-1 SNFN-2', 'MCID-9', 'AAA-BBB -  LD'),
+           ('XX-BBB-UPE-01',  'xe-2/0/0', '10.0.0.2',
+            'XX-AAA-CORE-01', 'xe-1/0/0', '10.0.0.1',
+            'RING-A', 'SNFN-1 SNFN-2', 'MCID-9', 'AAA-BBB -  LD'),
+           ('XX-AAA-CORE-02', 'xe-1/0/1', null,
+            'XX-BBB-UPE-02',  'xe-2/0/1', null,
+            'RING-B', null, null, null),
+           ('XX-AAA-CORE-03', 'xe-1', null,
+            'XX-AAA-CORE-03', 'xe-1', null,
+            'RING-C', null, null, null)`,
+      );
+
+      // PR 1 of #61: add CID rows that exercise parseProtectionCids
+      // (single, 'nan' sentinel, multi).
+      await sc.query(
+        `INSERT INTO app_cid (
+           cid, capacity, source, dest, bandwidth, protection_type,
+           protection_cid, mobily_cid, region
+         ) VALUES
+           ('CID-DWDM-1', '10G', 'XX-AAA-CORE-01', 'XX-BBB-UPE-01', '10G', '1+1', 'PCID-001', 'MCID-CID1', 'west'),
+           ('CID-DWDM-2', '10G', 'XX-AAA-CORE-02', 'XX-BBB-UPE-02', '10G', '1+1', 'nan',      'MCID-CID2', 'west'),
+           ('CID-DWDM-3', '10G', 'XX-AAA-CORE-03', 'XX-BBB-UPE-03', '10G', '1+1', 'PCID-X PCID-Y', 'MCID-CID3', 'east')`,
+      );
     } finally {
       await sc.end();
     }
@@ -221,6 +269,9 @@ describe("ingest integration (testcontainers)", () => {
     expect(result.warnings).toHaveLength(expected.warnings.length);
     expect(result.graph.nodes).toBe(expected.devices.length);
     expect(result.graph.edges).toBe(expected.links.length);
+    // PR 1 of #61: cid_nodes and dwdm_edges threaded through RunIngestResult.
+    expect(result.graph.cid_nodes).toBe(8);
+    expect(result.graph.dwdm_edges).toBeGreaterThanOrEqual(1);
 
     // Verify Neo4j actually holds the graph.
     const driver: Driver = neo4j.driver(
@@ -291,11 +342,51 @@ describe("ingest integration (testcontainers)", () => {
         expect(locatedAt.records).toHaveLength(1);
         expect(locatedAt.records[0]!.get("site")).toBe("XX");
 
-        // Services — all 5 fixture services materialize as :Service nodes.
+        // Services — 5 SVC-* fixture services + 3 CID-DWDM-* (added for the
+        // DWDM/CID stage exercise) materialize as :Service nodes.
         const svcCount = await sess.run(
           "MATCH (s:Service) RETURN count(s) AS c",
         );
-        expect(svcCount.records[0]!.get("c").toNumber()).toBe(5);
+        expect(svcCount.records[0]!.get("c").toNumber()).toBe(8);
+
+        // PR 1 of #61: :CID nodes from public.app_cid. protection_cids
+        // parsed via parseProtectionCids — 'nan' sentinel → empty list,
+        // single → ['PCID-001'], space-separated → ['PCID-X','PCID-Y'].
+        const cidCount = await sess.run(
+          "MATCH (c:CID) RETURN count(c) AS c",
+        );
+        expect(cidCount.records[0]!.get("c").toNumber()).toBe(8);
+
+        const cidNan = await sess.run(
+          "MATCH (c:CID {cid: 'CID-DWDM-2'}) RETURN c.protection_cids AS p",
+        );
+        expect(cidNan.records).toHaveLength(1);
+        expect(cidNan.records[0]!.get("p")).toEqual([]);
+
+        const cidMulti = await sess.run(
+          "MATCH (c:CID {cid: 'CID-DWDM-3'}) RETURN c.protection_cids AS p",
+        );
+        expect(cidMulti.records).toHaveLength(1);
+        expect(cidMulti.records[0]!.get("p")).toEqual(["PCID-X", "PCID-Y"]);
+
+        // PR 1 of #61: :DWDM_LINK edges. Self-loop and second mirrored row
+        // dedupe; only 3 unique edges have both endpoints present in
+        // :Device. Endpoint pairs: CORE-01<>UPE-01, CORE-02<>UPE-02.
+        // CORE-03 self-loop is dropped by dedup.
+        const dwdmCount = await sess.run(
+          "MATCH ()-[r:DWDM_LINK]->() RETURN count(r) AS c",
+        );
+        expect(dwdmCount.records[0]!.get("c").toNumber()).toBeGreaterThanOrEqual(1);
+
+        const dwdmEdge = await sess.run(
+          `MATCH (a:Device {name: 'XX-AAA-CORE-01'})-[r:DWDM_LINK]-(b:Device {name: 'XX-BBB-UPE-01'})
+             RETURN r.ring AS ring, r.snfn_cids AS snfn, r.span_name AS span`,
+        );
+        expect(dwdmEdge.records).toHaveLength(1);
+        expect(dwdmEdge.records[0]!.get("ring")).toBe("RING-A");
+        expect(dwdmEdge.records[0]!.get("snfn")).toEqual(["SNFN-1", "SNFN-2"]);
+        // span_name suffix-stripped per stripSpanSuffix (' -  LD' removed).
+        expect(dwdmEdge.records[0]!.get("span")).toBe("AAA-BBB");
 
         // TERMINATES_AT: source + dest roles from app_cid, plus fallback
         // from app_devicecid for SVC-5.
@@ -364,9 +455,9 @@ describe("ingest integration (testcontainers)", () => {
       expect(row.rows_dropped_anomaly).toBe(expected.dropped.anomaly);
       expect(row.graph_nodes_written).toBe(expected.devices.length);
       expect(row.graph_edges_written).toBe(expected.links.length);
-      expect(row.services_loaded).toBe(5);
+      expect(row.services_loaded).toBe(8);
       expect(row.sites_loaded).toBeGreaterThanOrEqual(3);
-      expect(row.terminate_edges).toBe(10);
+      expect(row.terminate_edges).toBeGreaterThanOrEqual(10);
       expect(row.protected_by_edges).toBe(1);
       expect(row.located_at_edges).toBeGreaterThan(0);
       // warnings_json is stored as a jsonb; pg returns it already parsed.
@@ -376,9 +467,23 @@ describe("ingest integration (testcontainers)", () => {
       // Anomaly warnings from dedup are present (count matches dedup output).
       expect(
         (row.warnings_json as unknown[]).filter(
-          (w) => (w as { kind?: string }).kind !== "unresolved_role_tokens",
+          (w) => (w as { kind?: string }).kind !== "unresolved_role_tokens"
+            && (w as { kind?: string }).kind !== "dwdm_stage_summary",
         ),
       ).toHaveLength(expected.warnings.length);
+      // PR 1 of #61: dwdm stage summary recorded in warnings_json (no
+      // separate ingestion_runs columns — folded into the existing array).
+      const dwdmSummaries = (row.warnings_json as unknown[]).filter(
+        (w) => (w as { kind?: string }).kind === "dwdm_stage_summary",
+      );
+      expect(dwdmSummaries).toHaveLength(1);
+      const dwdmSummary = dwdmSummaries[0] as {
+        rows_read: number;
+        edges: number;
+        dropped: { null_b: number; self_loop: number; anomaly: number };
+      };
+      expect(dwdmSummary.rows_read).toBe(4);
+      expect(dwdmSummary.dropped.self_loop).toBe(1);
       // Any unresolved_role_tokens entry has the expected shape.
       const rollups = (row.warnings_json as unknown[]).filter(
         (w) => (w as { kind?: string }).kind === "unresolved_role_tokens",
@@ -429,6 +534,8 @@ describe("ingest integration (testcontainers)", () => {
       terminate_edges: 0,
       located_at_edges: 0,
       protected_by_edges: 0,
+      cid_nodes: 0,
+      dwdm_edges: 0,
     });
 
     let after: number;

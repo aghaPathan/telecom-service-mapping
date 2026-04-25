@@ -13,6 +13,7 @@ describe("Nav", () => {
     expect(html).toContain('href="/devices"');
     expect(html).toContain('href="/core"');
     expect(html).toContain('href="/map"');
+    expect(html).toContain('href="/dwdm"');
     expect(html).toContain('data-testid="nav-row-1"');
     expect(html).not.toContain('data-testid="nav-row-2"');
   });
