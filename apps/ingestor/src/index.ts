@@ -15,11 +15,13 @@ import { readServices } from "./source/services.js";
 import { readIsolations } from "./source/isolations.js";
 import { readDwdmRows } from "./source/dwdm.js";
 import { readCidRows } from "./source/cid.js";
+import { readIsisCost } from "./source/isis-cost.js";
 import { writeIsolations } from "./isolations-writer.js";
 import { dedupLldpRows, dedupDwdmRows } from "./dedup.js";
+import { canonicalizeIsisRows } from "./isis-cost-dedup.js";
 import { parseProtectionCids } from "./cid-parser.js";
 import { buildServicesGraph } from "./services.js";
-import { writeGraph, type SitePortalRow, type CidProps } from "./graph/writer.js";
+import { writeGraph, writeIsisWeights, type SitePortalRow, type CidProps } from "./graph/writer.js";
 import { startRun, finishRun } from "./runs.js";
 import { startScheduler, tickCron } from "./cron.js";
 import {
@@ -345,6 +347,32 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
     );
     log("info", "graph_written", counts);
 
+    // ISIS-cost stage (issue #67): runs AFTER the LLDP graph write so the
+    // :CONNECTS_TO edges already exist. Failures here MUST NOT fail the
+    // overall run — ClickHouse is an optional weight source. Errors are
+    // appended to ingestion_runs.warnings_json as `{stage:'isis_cost', ...}`
+    // and existing edge weights are left untouched (the writer only SETs
+    // `weight` when MATCH succeeds, so a thrown error never half-writes).
+    const isisWarnings: unknown[] = [];
+    if (config.clickhouse) {
+      try {
+        const rawIsis = await readIsisCost(config.clickhouse);
+        const canonical = canonicalizeIsisRows(rawIsis);
+        const { edges_matched } = await writeIsisWeights(driver, canonical);
+        log("info", "isis_weights_written", {
+          rows_in: rawIsis.length,
+          rows_canonical: canonical.length,
+          edges_matched,
+        });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        isisWarnings.push({ stage: "isis_cost", error: errorMsg });
+        log("warn", "isis_weights_failed", { error: errorMsg });
+      }
+    } else {
+      log("info", "isis_weights_skipped", { reason: "clickhouse_unconfigured" });
+    }
+
     await finishRun(pool, runId, {
       status: "succeeded",
       source_rows_read: rows.length,
@@ -358,7 +386,12 @@ export async function runIngest(opts: RunIngestOpts): Promise<RunIngestResult> {
       terminate_edges: counts.terminate_edges,
       located_at_edges: counts.located_at_edges,
       protected_by_edges: counts.protected_by_edges,
-      warnings: [...dedup.warnings, ...resolverWarnings, ...dwdmWarnings],
+      warnings: [
+        ...dedup.warnings,
+        ...resolverWarnings,
+        ...dwdmWarnings,
+        ...isisWarnings,
+      ],
     });
     log("info", "run_finished", { runId });
 
