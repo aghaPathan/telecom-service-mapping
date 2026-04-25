@@ -34,6 +34,17 @@ describe("loadConfig — ClickHouse block", () => {
     });
   });
 
+  it("throws when CLICKHOUSE_URL is set but CLICKHOUSE_USER is missing", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv,
+        CLICKHOUSE_URL: "http://clickhouse:8123",
+        CLICKHOUSE_PASSWORD: "secret",
+        CLICKHOUSE_DATABASE: "lldp_data",
+      } as unknown as NodeJS.ProcessEnv),
+    ).toThrow(/CLICKHOUSE_USER/);
+  });
+
   it("honours CLICKHOUSE_ISIS_TABLE and CLICKHOUSE_TIMEOUT_MS overrides", () => {
     const cfg = loadConfig({
       ...baseEnv,

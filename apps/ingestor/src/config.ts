@@ -48,7 +48,17 @@ export interface ClickHouseConfig {
   timeoutMs: number;
 }
 
-export type IngestorConfig = z.infer<typeof Schema> & {
+// Raw schema keys that get folded into the grouped `clickhouse` block; we strip
+// them from the public output type so callers have a single source of truth.
+type RawClickHouseKey =
+  | "CLICKHOUSE_URL"
+  | "CLICKHOUSE_USER"
+  | "CLICKHOUSE_PASSWORD"
+  | "CLICKHOUSE_DATABASE"
+  | "CLICKHOUSE_ISIS_TABLE"
+  | "CLICKHOUSE_TIMEOUT_MS";
+
+export type IngestorConfig = Omit<z.infer<typeof Schema>, RawClickHouseKey> & {
   clickhouse?: ClickHouseConfig;
 };
 
@@ -60,22 +70,30 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): IngestorConfig
       .join(", ");
     throw new Error(`Invalid ingestor config: missing/invalid ${missing}`);
   }
-  const data = parsed.data;
+  const {
+    CLICKHOUSE_URL,
+    CLICKHOUSE_USER,
+    CLICKHOUSE_PASSWORD,
+    CLICKHOUSE_DATABASE,
+    CLICKHOUSE_ISIS_TABLE,
+    CLICKHOUSE_TIMEOUT_MS,
+    ...rest
+  } = parsed.data;
   let clickhouse: ClickHouseConfig | undefined;
-  if (data.CLICKHOUSE_URL) {
-    if (!data.CLICKHOUSE_USER || data.CLICKHOUSE_PASSWORD === undefined || !data.CLICKHOUSE_DATABASE) {
+  if (CLICKHOUSE_URL) {
+    if (!CLICKHOUSE_USER || CLICKHOUSE_PASSWORD === undefined || !CLICKHOUSE_DATABASE) {
       throw new Error(
         "Invalid ingestor config: CLICKHOUSE_URL is set but one or more of CLICKHOUSE_USER/CLICKHOUSE_PASSWORD/CLICKHOUSE_DATABASE is missing",
       );
     }
     clickhouse = {
-      url: data.CLICKHOUSE_URL,
-      user: data.CLICKHOUSE_USER,
-      password: data.CLICKHOUSE_PASSWORD,
-      database: data.CLICKHOUSE_DATABASE,
-      isisTable: data.CLICKHOUSE_ISIS_TABLE,
-      timeoutMs: data.CLICKHOUSE_TIMEOUT_MS,
+      url: CLICKHOUSE_URL,
+      user: CLICKHOUSE_USER,
+      password: CLICKHOUSE_PASSWORD,
+      database: CLICKHOUSE_DATABASE,
+      isisTable: CLICKHOUSE_ISIS_TABLE,
+      timeoutMs: CLICKHOUSE_TIMEOUT_MS,
     };
   }
-  return { ...data, clickhouse };
+  return { ...rest, clickhouse };
 }
